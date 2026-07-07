@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.signaledi/mcp-server",
+  "title": "SignalEDI",
+  "description": "Parse, validate, send, and inspect EDI (X12/EDIFACT) documents, and sync EDI + QuickBooks Online, from any MCP client \u2014 backed by the SignalEDI hosted engine. Runs in demo mode without an API key (parse/validate via the public playground); set SIGNALEDI_API_KEY for full access.",
+  "version": "0.3.0",
+  "websiteUrl": "https://signaledi.com/integrations/mcp",
+  "repository": {
+    "url": "https://github.com/signaledi/signaledi-integrations",
+    "source": "github",
+    "subfolder": "integrations/mcp"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@signaledi/mcp-server",
+      "version": "0.3.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SIGNALEDI_API_KEY",
+          "description": "Workspace API key with the 'platform' scope (sk_live_\u2026). Optional for demo mode; create one at https://signaledi.com/console/keys for send, transactions, and QuickBooks tools.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SIGNALEDI_BASE_URL",
+          "description": "Override the API base URL. Defaults to https://signaledi.com; point at a preview deployment or custom domain when needed.",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "https://signaledi.com"
+        }
+      ]
+    }
+  ]
+}
