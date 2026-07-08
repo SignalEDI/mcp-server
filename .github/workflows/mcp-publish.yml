@@ -1,18 +1,25 @@
-# Publishes @signaledi/mcp-server from the public mirror repo.
-# Setup: repo secret `NPM_TOKEN` — granular npm automation token scoped to @signaledi/* publish.
+# Publishes @signaledi/mcp-server â€” the Model Context Protocol server that exposes
+# the developer /v1 API to AI clients. On a `mcp-vX.Y.Z` tag it publishes to npm
+# AND lists/updates the server in the official MCP Registry (registry.modelcontextprotocol.io)
+# via GitHub OIDC; on PRs that touch the package it installs + runs the unit tests (no publish).
+#
+# Setup: repo secret `NPM_TOKEN` â€” granular npm automation token scoped to @signaledi/* publish.
+# The registry step needs NO secret â€” it authenticates with GitHub OIDC, which proves
+# the `io.github.signaledi/*` namespace from the workflow's own identity (see id-token below).
+# Ownership marker: package.json carries `mcpName` and server.json `name` â€” they MUST match.
+#
+# Release flow:
+#   1) bump package.json "version" AND server.json "version" + packages[0].version (keep all three in lockstep)
+#   2) git tag mcp-v0.3.0 && git push github mcp-v0.3.0
 name: MCP server publish (@signaledi/mcp-server)
 
 on:
   push:
     tags:
       - "mcp-v*"
-      - "v*"
   pull_request:
     paths:
-      - "src/**"
-      - "package.json"
-      - "server.json"
-      - "test.mjs"
+      - "signaledi-integrations/integrations/mcp/**"
       - ".github/workflows/mcp-publish.yml"
   workflow_dispatch: {}
 
@@ -24,6 +31,9 @@ jobs:
     name: Install & test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signaledi-integrations/integrations/mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,12 +49,15 @@ jobs:
   publish:
     name: Publish to npm + MCP Registry
     needs: test
-    if: startsWith(github.ref, 'refs/tags/mcp-v') || startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/mcp-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write
+      id-token: write # OIDC token proves the io.github.signaledi/* namespace to the MCP Registry
+    defaults:
+      run:
+        working-directory: signaledi-integrations/integrations/mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,7 +65,7 @@ jobs:
           node-version: 24
       - name: Install
         run: npm install --no-audit --no-fund
-      - name: Guard — package.json mcpName matches server.json name
+      - name: Guard â€” package.json mcpName matches server.json name
         run: |
           PKG_NAME=$(node -p "require('./package.json').mcpName")
           SRV_NAME=$(node -p "require('./server.json').name")
