@@ -1,11 +1,11 @@
 {
   "name": "@signaledi/mcp-server",
   "version": "0.3.0",
-  "mcpName": "io.github.signaledi/mcp-server",
-  "description": "Model Context Protocol (MCP) server for SignalEDI — parse, validate, send, and inspect EDI documents, and sync EDI ↔ QuickBooks Online, from any MCP client (Claude Desktop, Cursor, Windsurf).",
+  "mcpName": "io.github.SignalEDI/mcp-server",
+  "description": "Model Context Protocol (MCP) server for SignalEDI \u2014 parse, validate, send, and inspect EDI documents, and sync EDI \u2194 QuickBooks Online, from any MCP client (Claude Desktop, Cursor, Windsurf).",
   "license": "MIT",
   "author": "SignalEDI",
-  "homepage": "https://signaledi.com/integrations/mcp",
+  "homepage": "https://signaledi.com/developers#mcp",
   "repository": {
     "type": "git",
     "url": "https://github.com/signaledi/mcp-server.git"
