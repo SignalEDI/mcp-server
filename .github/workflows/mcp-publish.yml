@@ -67,6 +67,7 @@ jobs:
         run: |
           test -n "$NPM_TOKEN" || { echo "::error::NPM_TOKEN secret is not set"; exit 1; }
           echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          PKG_VER=$(node -p "require('./package.json').version")
           if npm view "@signaledi/mcp-server@${PKG_VER}" version --userconfig .npmrc >/dev/null 2>&1; then
             echo "npm version ${PKG_VER} already published â€” skipping npm publish"
           else
@@ -74,7 +75,6 @@ jobs:
           fi
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PKG_VER: ${{ github.ref_name }}
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
