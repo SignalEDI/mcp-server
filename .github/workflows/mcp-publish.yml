@@ -1,0 +1,79 @@
+# Publishes @signaledi/mcp-server from the public mirror repo.
+# Setup: repo secret `NPM_TOKEN` — granular npm automation token scoped to @signaledi/* publish.
+name: MCP server publish (@signaledi/mcp-server)
+
+on:
+  push:
+    tags:
+      - "mcp-v*"
+      - "v*"
+  pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "server.json"
+      - "test.mjs"
+      - ".github/workflows/mcp-publish.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Install & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Unit tests (mock fetch, no network)
+        run: npm test
+      - name: Pack (dry-run tarball)
+        run: npm pack --dry-run
+
+  publish:
+    name: Publish to npm + MCP Registry
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/mcp-v') || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Guard — package.json mcpName matches server.json name
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').mcpName")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          PKG_VER=$(node -p "require('./package.json').version")
+          SRV_VER=$(node -p "require('./server.json').version")
+          SRV_PKG_VER=$(node -p "require('./server.json').packages[0].version")
+          echo "mcpName=$PKG_NAME serverName=$SRV_NAME pkgVer=$PKG_VER srvVer=$SRV_VER srvPkgVer=$SRV_PKG_VER"
+          test "$PKG_NAME" = "$SRV_NAME" || { echo "::error::package.json mcpName != server.json name"; exit 1; }
+          test "$PKG_VER" = "$SRV_VER" || { echo "::error::version mismatch package.json vs server.json"; exit 1; }
+          test "$PKG_VER" = "$SRV_PKG_VER" || { echo "::error::version mismatch vs server.json packages[0]"; exit 1; }
+      - name: Publish to npm
+        run: |
+          test -n "$NPM_TOKEN" || { echo "::error::NPM_TOKEN secret is not set"; exit 1; }
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          npm publish --access public --userconfig .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
