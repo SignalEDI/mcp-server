@@ -3,7 +3,7 @@
   "name": "io.github.SignalEDI/mcp-server",
   "title": "SignalEDI",
   "description": "EDI parse, validate, send & inspect (X12/EDIFACT) from any MCP client. Demo without API key.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "websiteUrl": "https://signaledi.com/developers#mcp",
   "repository": {
     "url": "https://github.com/signaledi/signaledi-integrations",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@signaledi/mcp-server",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "transport": {
         "type": "stdio"
       },
