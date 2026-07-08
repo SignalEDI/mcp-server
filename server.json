@@ -2,9 +2,9 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.signaledi/mcp-server",
   "title": "SignalEDI",
-  "description": "Parse, validate, send, and inspect EDI (X12/EDIFACT) documents, and sync EDI + QuickBooks Online, from any MCP client \u2014 backed by the SignalEDI hosted engine. Runs in demo mode without an API key (parse/validate via the public playground); set SIGNALEDI_API_KEY for full access.",
+  "description": "EDI parse, validate, send & inspect (X12/EDIFACT) from any MCP client. Demo without API key.",
   "version": "0.3.0",
-  "websiteUrl": "https://signaledi.com/integrations/mcp",
+  "websiteUrl": "https://signaledi.com/developers#mcp",
   "repository": {
     "url": "https://github.com/signaledi/signaledi-integrations",
     "source": "github",
