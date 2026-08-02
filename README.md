@@ -3,19 +3,22 @@
 A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes the
 SignalEDI Core API (`/api/v1`) as tools, so AI clients — **Claude Desktop, Cursor,
 Windsurf, Claude Code**, and any other MCP host — can parse, validate, send, and
-inspect EDI documents directly in a conversation or agent loop.
+inspect X12 EDI documents directly in a conversation or agent loop.
 
-It is a thin adapter over the same hosted engine that powers every other SignalEDI
-integration: no EDI logic lives here, only the MCP transport and auth.
+It is mostly a thin adapter over the hosted SignalEDI engine, with a few local X12
+helper surfaces for demo mode and model grounding: synthetic templates, a small
+validation/error dictionary, prompts, and bundled resources. The hosted API remains
+the source of truth for production parse, validate, send, transaction, kit, and
+QuickBooks flows.
 
 | | |
 | --- | --- |
 | **Package** | `@signaledi/mcp-server` (npm) |
-| **MCP Registry** | `io.github.signaledi/mcp-server` ([registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io)) |
+| **MCP Registry** | `io.github.SignalEDI/mcp-server` ([registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io)) |
 | **Transport** | stdio |
 | **Runtime** | Node 18+ (uses global `fetch`) |
 | **Runtime deps** | `@modelcontextprotocol/sdk` only |
-| **Auth** | Optional — **demo mode** without a key (parse/validate/generate via public playground); set `SIGNALEDI_API_KEY` for send/partner/QBO tools. |
+| **Auth** | Optional — **demo mode** without a key (parse/validate via public playground; generate/dictionary tools local); set `SIGNALEDI_API_KEY` for send/partner/transaction/QBO tools. |
 
 Discoverable in the official MCP Registry and the directories that crawl it
 (Smithery, Glama, mcp.so, PulseMCP). The `server.json` in this folder is the registry
@@ -25,26 +28,48 @@ manifest; `package.json` carries the matching `mcpName` ownership marker.
 
 | Tool | What it does |
 | --- | --- |
-| `parse_edi` | Parse a raw X12/EDIFACT interchange into structured JSON + a validation summary. |
+| `parse_edi` | Parse a raw X12 interchange into structured JSON + a validation summary. |
 | `validate_edi` | Validate a raw interchange against X12 structural rules (summary only). |
-| `generate_test_document` | Render synthetic 850/810/856/837 samples (works in demo mode). |
-| `explain_edi_error` | Local dictionary lookup for ack/validation errors. |
-| `lookup_x12` | Search segment and acknowledgement reference. |
-| `list_partner_kits` | List packaged API kits (requires key). |
-| `get_partner_kit` | Fetch one kit by id (requires key). |
 | `send_outbound_document` | Serialize a JSON payload to EDI and send it to a trading partner (async, webhook-acked). |
 | `list_transactions` | List your recent transactions (newest first), scoped to the API key. |
 | `get_transaction` | Fetch one transaction by id with full lifecycle status. |
+| `quickbooks_status` | Show QuickBooks Online connection status without returning tokens. |
+| `quickbooks_sync_to_qbo` | Push eligible EDI transactions into QuickBooks Online. |
+| `quickbooks_export_to_edi` | Pull QBO invoices or purchase orders and emit outbound EDI payloads. |
+| `quickbooks_list_entities` | List QBO invoices, purchase orders, customers, vendors, or items for preview/mapping. |
+| `quickbooks_disconnect` | Revoke and remove the workspace QBO connection. |
+| `list_partner_kits` | List packaged API kits (requires key). |
+| `get_partner_kit` | Fetch one kit by `kitId`, with `partnerId` accepted as an alias (requires key). |
+| `explain_edi_error` | Local X12 dictionary lookup for ack/validation errors. |
+| `generate_test_document` | Render synthetic X12 850/810/856/837 samples (works in demo mode). |
+| `lookup_x12` | Search segment and acknowledgement reference. |
+| `validate_x12_structure` | Alias for `validate_edi`, tuned for tool discovery. |
+| `parse_segments` | Alias for `parse_edi`, tuned for tool discovery. |
+| `lookup_element_definition` | Alias for `lookup_x12`; accepts `query` or `element`. |
 
-Bad arguments and API errors are returned as MCP tool errors (so the model sees and
-can recover from them) rather than crashing the server.
+Bad arguments and API errors are returned as structured MCP tool errors with stable
+codes (so the model can recover from them) rather than crashing the server. Results
+include both backwards-compatible text content and native `structuredContent`.
+
+### Mutation safety
+
+Tools that send EDI, write to QuickBooks, or disconnect QuickBooks require both
+`confirm: true` and a unique `idempotencyKey` (at least eight characters). The
+server adds a request id, tool name, and idempotency header to outbound API calls.
+Dry-run QuickBooks export remains available without confirmation. Tool listings
+advertise read-only versus destructive behavior and required capability scopes.
+
+The client rejects non-HTTPS base URLs except for localhost, caps EDI payloads at
+64 KiB, retries transient failures within a total deadline, and emits redacted
+per-tool latency/success metrics to stderr. Set `SIGNALEDI_MCP_TELEMETRY=0` to
+disable local metric lines.
 
 ## Quick start
 
 1. **Try without a key (demo mode).** Run `npx -y @signaledi/mcp-server` with no env vars —
-   `parse_edi`, `validate_edi`, `generate_test_document`, `explain_edi_error`, and `lookup_x12`
-   work against the public playground or local templates. Keyed tools return a structured
-   `demo_mode` error with a link to create a key.
+   `parse_edi` and `validate_edi` call the public playground; `generate_test_document`,
+   `explain_edi_error`, `lookup_x12`, and the alias tools use local X12 templates/dictionary
+   data. Keyed tools return a structured `demo_mode` error with a link to create a key.
 2. **Add a platform key for production flows.** Create a workspace key with the `platform`
    scope at [signaledi.com/console/keys](https://signaledi.com/console/keys) and set
    `SIGNALEDI_API_KEY`.
@@ -79,7 +104,7 @@ Same shape under the editor's MCP settings (`command: npx`, `args: ["-y",
 
 ## Demo mode
 
-Without a key, the server runs in demo mode (stderr notice): `parse_edi` and `validate_edi` call the public playground; keyed tools return JSON `{ "error": "demo_mode" }`; successful demo results append `— demo mode; responses rate-limited`.
+Without a key, the server runs in demo mode (stderr notice): `parse_edi` and `validate_edi` call the public playground; local template/dictionary tools run without network; keyed tools return JSON `{ "error": "demo_mode" }`; successful demo results append `— demo mode; responses rate-limited`.
 
 ## Configuration
 
@@ -112,6 +137,7 @@ The client (`src/client.mjs`) and tools (`src/tools.mjs`) are pure and unit-test
 
 ```
 MCP client (Claude/Cursor/…) ⇄ @signaledi/mcp-server (stdio) ⇄ SignalEDI Core API (/api/v1)
+                                      └ local X12 templates/dictionary/resources for demo + guidance
 ```
 
 See the [SDK](../../packages/sdk) for a programmatic TypeScript client and
@@ -119,9 +145,9 @@ See the [SDK](../../packages/sdk) for a programmatic TypeScript client and
 ## GitHub mirror
 
 [![npm version](https://img.shields.io/npm/v/@signaledi/mcp-server.svg)](https://www.npmjs.com/package/@signaledi/mcp-server)
-[![MCP Registry](https://img.shields.io/badge/MCP-io.github.signaledi%2Fmcp--server-blue)](https://registry.modelcontextprotocol.io)
+[![MCP Registry](https://img.shields.io/badge/MCP-io.github.SignalEDI%2Fmcp--server-blue)](https://registry.modelcontextprotocol.io)
 
-The public GitHub repo [`signaledi/mcp-server`](https://github.com/signaledi/mcp-server) mirrors **this folder only**. The GitLab monorepo stays the source of truth; the mirror updates on each npm publish (see [`MIRROR.md`](MIRROR.md) and the operator runbook [`docs/internal/runbooks/GITHUB_MCP_MIRROR.md`](../../../docs/internal/runbooks/GITHUB_MCP_MIRROR.md)).
+The public GitHub repo [`SignalEDI/mcp-server`](https://github.com/SignalEDI/mcp-server) mirrors **this folder only**. The GitLab monorepo stays the source of truth; the mirror updates on each npm publish (see [`MIRROR.md`](MIRROR.md) and the operator runbook [`docs/internal/runbooks/GITHUB_MCP_MIRROR.md`](../../../docs/internal/runbooks/GITHUB_MCP_MIRROR.md)).
 
 ### Examples
 

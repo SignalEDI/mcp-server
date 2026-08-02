@@ -1,5 +1,5 @@
-// Dependency-free tests for the SignalEDI MCP server's pure modules.
-// Run: node test.mjs   (no install, no network â€” uses a mock fetch.)
+﻿// Dependency-free tests for the SignalEDI MCP server's pure modules.
+// Run: node test.mjs   (no install, no network ├óΓé¼ΓÇ¥ uses a mock fetch.)
 //
 // Covers the client (auth header, retry, error mapping) and the tools
 // (schema shape, handler happy paths, and MCP error results). The stdio
@@ -7,6 +7,9 @@
 // by the MCP client at runtime, not here.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SignalEDIClient, SignalEDIError } from "./src/client.mjs";
 import { TOOLS, getTool, callTool } from "./src/tools.mjs";
 import {
@@ -29,6 +32,10 @@ import {
   listPrompts,
   getPrompt,
 } from "./src/resources.mjs";
+import { loadPackageMetadata } from "./src/metadata.mjs";
+
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const readPackageFile = (name) => readFileSync(join(ROOT, name), "utf8");
 
 let passed = 0;
 async function test(name, fn) {
@@ -60,23 +67,33 @@ function mockFetch(responses) {
   return fn;
 }
 
-// â”€â”€ Client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Client ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 
 await test("client requires an apiKey unless demoMode", () => {
   assert.throws(() => new SignalEDIClient({}), /apiKey is required/);
   assert.doesNotThrow(() => new SignalEDIClient({ demoMode: true }));
 });
 
+await test("client allows HTTP only for localhost including bracketed IPv6", () => {
+  assert.doesNotThrow(() => new SignalEDIClient({ apiKey: "k", baseUrl: "http://localhost:3000" }));
+  assert.doesNotThrow(() => new SignalEDIClient({ apiKey: "k", baseUrl: "http://127.0.0.1:3000" }));
+  assert.doesNotThrow(() => new SignalEDIClient({ apiKey: "k", baseUrl: "http://[::1]:3000" }));
+  assert.throws(
+    () => new SignalEDIClient({ apiKey: "k", baseUrl: "http://example.com" }),
+    /must use HTTPS/,
+  );
+});
+
 await test("client sends Bearer auth + JSON body and hits /api/v1", async () => {
   const fetch = mockFetch([{ status: 200, body: { validation: { valid: true }, json: {}, envelope: {} } }]);
   const client = new SignalEDIClient({ apiKey: "sk_test_123", fetch });
-  const out = await client.parse("ISA*00*â€¦");
+  const out = await client.parse("ISA*00*├óΓé¼┬ª");
   assert.equal(out.validation.valid, true);
   const call = fetch.calls[0];
   assert.match(call.url, /\/api\/v1\/parse$/);
   assert.equal(call.init.headers.Authorization, "Bearer sk_test_123");
   assert.equal(call.init.method, "POST");
-  assert.deepEqual(JSON.parse(call.init.body), { content: "ISA*00*â€¦" });
+  assert.deepEqual(JSON.parse(call.init.body), { content: "ISA*00*├óΓé¼┬ª" });
 });
 
 await test("client retries a 503 then succeeds", async () => {
@@ -85,7 +102,7 @@ await test("client retries a 503 then succeeds", async () => {
     { status: 200, body: { validation: { valid: true } } },
   ]);
   const client = new SignalEDIClient({ apiKey: "k", fetch });
-  const out = await client.validate("ISA*â€¦");
+  const out = await client.validate("ISA*├óΓé¼┬ª");
   assert.equal(out.validation.valid, true);
   assert.equal(fetch.calls.length, 2);
 });
@@ -102,6 +119,24 @@ await test("client throws SignalEDIError on a non-retryable 400", async () => {
   assert.equal(fetch.calls.length, 1); // no retry on 4xx
 });
 
+await test("client sanitizes 5xx upstream error text", async () => {
+  const fetch = mockFetch([
+    { status: 502, headers: { "retry-after": "0" }, body: "upstream stack trace with tenant detail" },
+    { status: 502, headers: { "retry-after": "0" }, body: "upstream stack trace with tenant detail" },
+    { status: 502, headers: { "retry-after": "0" }, body: "upstream stack trace with tenant detail" },
+    { status: 502, body: "upstream stack trace with tenant detail" },
+  ]);
+  const client = new SignalEDIClient({ apiKey: "k", fetch });
+  await assert.rejects(() => client.parse("ISA*"), (err) => {
+    assert.ok(err instanceof SignalEDIError);
+    assert.equal(err.status, 502);
+    assert.match(err.message, /Request failed \(502\)/);
+    assert.doesNotMatch(err.message, /tenant detail|stack trace/);
+    return true;
+  });
+  assert.equal(fetch.calls.length, 4);
+});
+
 await test("listTransactions encodes the limit query", async () => {
   const fetch = mockFetch([{ status: 200, body: { transactions: [] } }]);
   const client = new SignalEDIClient({ apiKey: "k", fetch });
@@ -109,7 +144,7 @@ await test("listTransactions encodes the limit query", async () => {
   assert.match(fetch.calls[0].url, /\/transactions\?limit=25$/);
 });
 
-// â”€â”€ Tool definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Tool definitions ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 
 await test("every tool has a name, description, and object inputSchema", () => {
   assert.ok(TOOLS.length >= 5);
@@ -134,7 +169,7 @@ await test("every tool has a name, description, and object inputSchema", () => {
   }
 });
 
-// â”€â”€ Tool handlers (via callTool) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Tool handlers (via callTool) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 
 function stubClient(overrides = {}) {
   return {
@@ -160,11 +195,25 @@ await test("demo parse_edi hits public playground endpoint", async () => {
     },
   ]);
   const client = new SignalEDIClient({ demoMode: true, fetch });
-  const res = await callTool(client, "parse_edi", { content: "ISA*â€¦" });
+  const res = await callTool(client, "parse_edi", { content: "ISA*├óΓé¼┬ª" });
   assert.equal(res.isError, undefined);
   assert.match(res.content[0].text, /demo mode/);
   assert.match(fetch.calls[0].url, /\/api\/public\/playground\/parse$/);
   assert.equal(fetch.calls[0].init.headers.Authorization, undefined);
+});
+
+await test("demo playground retries transient failures and posts content payload", async () => {
+  const fetch = mockFetch([
+    { status: 503, headers: { "retry-after": "0" }, body: { error: "busy" } },
+    { status: 200, body: { ok: true, demo: true, validation: { valid: true } } },
+  ]);
+  const client = new SignalEDIClient({ demoMode: true, fetch });
+  const out = await client.validate("ISA*00*");
+  assert.equal(out.demo, true);
+  assert.equal(fetch.calls.length, 2);
+  assert.match(fetch.calls[0].url, /\/api\/public\/playground\/validate$/);
+  assert.deepEqual(JSON.parse(fetch.calls[0].init.body), { content: "ISA*00*" });
+  assert.ok(fetch.calls[0].init.signal, "playground requests use AbortSignal timeouts");
 });
 
 await test("demo gated tool returns structured demo_mode error", async () => {
@@ -181,7 +230,7 @@ await test("demo gated tool returns structured demo_mode error", async () => {
 
 
 await test("keyed parse_edi regression unchanged", async () => {
-  const res = await callTool(stubClient(), "parse_edi", { content: "ISA*â€¦" });
+  const res = await callTool(stubClient(), "parse_edi", { content: "ISA*├óΓé¼┬ª" });
   assert.equal(res.isError, undefined);
   assert.equal(res.content[0].type, "text");
   assert.match(res.content[0].text, /"valid": true/);
@@ -198,12 +247,16 @@ await test("send_outbound_document requires an object payload", async () => {
     partnerId: "p1",
     documentTypeCode: "850",
     payload: "not-an-object",
+    confirm: true,
+    idempotencyKey: "send-test-001",
   });
   assert.equal(bad.isError, true);
   const good = await callTool(stubClient(), "send_outbound_document", {
     partnerId: "p1",
     documentTypeCode: "850",
     payload: { foo: "bar" },
+    confirm: true,
+    idempotencyKey: "send-test-002",
   });
   assert.equal(good.isError, undefined);
   assert.match(good.content[0].text, /doc_1/);
@@ -228,10 +281,28 @@ await test("callTool maps an API SignalEDIError into an MCP error result", async
 await test("callTool reports an unknown tool", async () => {
   const res = await callTool(stubClient(), "no_such_tool", {});
   assert.equal(res.isError, true);
+  assert.equal(res.structuredContent.error, "UNKNOWN_TOOL");
   assert.match(res.content[0].text, /Unknown tool/);
 });
 
-// â”€â”€ QuickBooks tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+await test("mutation tools require confirmation and idempotency", async () => {
+  const res = await callTool(stubClient(), "send_outbound_document", {
+    partnerId: "p1", documentTypeCode: "850", payload: {},
+  });
+  assert.equal(res.structuredContent.error, "CONFIRMATION_REQUIRED");
+  const confirmed = await callTool(stubClient(), "send_outbound_document", {
+    partnerId: "p1", documentTypeCode: "850", payload: {}, confirm: true,
+  });
+  assert.equal(confirmed.structuredContent.error, "IDEMPOTENCY_KEY_REQUIRED");
+});
+
+await test("successful tool results include structured content", async () => {
+  const res = await callTool(stubClient(), "generate_test_document", { type: "850" });
+  assert.equal(typeof res.structuredContent, "object");
+  assert.equal(res._meta.protocolVersion, "1");
+});
+
+// ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ QuickBooks tools ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 
 await test("the QuickBooks tools are registered", () => {
   for (const expected of [
@@ -252,13 +323,15 @@ await test("quickbooks_status returns content", async () => {
 });
 
 await test("quickbooks_sync_to_qbo rejects an empty selector", async () => {
-  const res = await callTool(stubClient(), "quickbooks_sync_to_qbo", {});
+  const res = await callTool(stubClient(), "quickbooks_sync_to_qbo", { confirm: true, idempotencyKey: "sync-test-001" });
   assert.equal(res.isError, true);
   assert.match(res.content[0].text, /transactionId.*transactionIds.*all/i);
 });
 
-await test("quickbooks_sync_to_qbo accepts all:true", async () => {
-  const res = await callTool(stubClient(), "quickbooks_sync_to_qbo", { all: true });
+await test("quickbooks_sync_to_qbo requires confirmation and accepts all:true", async () => {
+  const gated = await callTool(stubClient(), "quickbooks_sync_to_qbo", { all: true });
+  assert.equal(gated.structuredContent.error, "CONFIRMATION_REQUIRED");
+  const res = await callTool(stubClient(), "quickbooks_sync_to_qbo", { all: true, confirm: true, idempotencyKey: "sync-test-002" });
   assert.equal(res.isError, undefined);
   assert.match(res.content[0].text, /"synced": 1/);
 });
@@ -268,7 +341,7 @@ await test("quickbooks_export_to_edi requires partnerId unless dryRun", async ()
   assert.equal(bad.isError, true);
   const dry = await callTool(stubClient(), "quickbooks_export_to_edi", { entity: "Invoice", dryRun: true });
   assert.equal(dry.isError, undefined);
-  const sent = await callTool(stubClient(), "quickbooks_export_to_edi", { entity: "Invoice", partnerId: "p1" });
+  const sent = await callTool(stubClient(), "quickbooks_export_to_edi", { entity: "Invoice", partnerId: "p1", confirm: true, idempotencyKey: "export-test-001" });
   assert.equal(sent.isError, undefined);
 });
 
@@ -326,7 +399,7 @@ await test("parse_edi in demo mode appends rate-limit footer", async () => {
 });
 
 
-// â€”â€” WP-4 tool surface â€”â€”
+// ├óΓé¼ΓÇ¥├óΓé¼ΓÇ¥ WP-4 tool surface ├óΓé¼ΓÇ¥├óΓé¼ΓÇ¥
 
 await test("WP-4 tools are registered", () => {
   for (const expected of [
@@ -418,6 +491,23 @@ await test("renderTestDocument covers all template types", () => {
   }
 });
 
+await test("renderTestDocument validates override boundaries", () => {
+  const invoice = renderTestDocument("810", { controlNumber: "123456789", poNumber: "PO-SAFE", date: "20260713" });
+  assert.match(invoice, /ISA\*.*123456789/);
+  assert.match(invoice, /IEA\*1\*123456789~/);
+  assert.throws(() => renderTestDocument("850", { date: "2026-07-13" }), /YYYYMMDD/);
+  assert.throws(() => renderTestDocument("850", { controlNumber: "123" }), /9 digits/);
+  assert.throws(() => renderTestDocument("850", { poNumber: "PO~BAD" }), /EDI separators/);
+  assert.throws(() => renderTestDocument("850", { unknown: "x" }), /Unsupported override/);
+});
+
+await test("generate_test_document rejects unsafe local-template overrides", async () => {
+  const client = { demoMode: true, ...stubClient() };
+  const res = await callTool(client, "generate_test_document", { type: "850", overrides: { poNumber: "PO*BAD" } });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /EDI separators/);
+});
+
 await test("explainEdiError falls back for unknown code", () => {
   const out = explainEdiError({ code: "ZZZZ", rawError: "test" });
   assert.match(out.meaning, /Structural|issue/);
@@ -490,6 +580,33 @@ await test("debug-rejection prompt references explain and lookup tools", () => {
 
 await test("readResource rejects unknown uri", async () => {
   await assert.rejects(() => readResource(stubClient(), "signaledi://nope"), /Unknown resource/);
+});
+
+// -- Packaging and registry metadata --
+
+await test("runtime metadata version matches package and server manifest", () => {
+  const metadata = loadPackageMetadata();
+  assert.equal(metadata.version, "0.4.0");
+  assert.equal(metadata.serverVersion, metadata.version);
+  assert.equal(metadata.registryPackageVersion, metadata.version);
+  assert.equal(metadata.mcpName, "io.github.SignalEDI/mcp-server");
+});
+
+await test("README documents every registered tool", () => {
+  const readme = readPackageFile("README.md");
+  for (const tool of TOOLS) {
+    assert.match(readme, new RegExp(`\\\`${tool.name}\\\``), `README missing ${tool.name}`);
+  }
+  assert.doesNotMatch(readme, /X12\/EDIFACT|no EDI logic lives here/);
+  assert.match(readme, /local X12 templates\/dictionary/);
+});
+
+await test("npm package includes registry, license, mirror, examples, and tests", () => {
+  const pkg = JSON.parse(readPackageFile("package.json"));
+  for (const expected of ["src", "examples", "LICENSE", "MIRROR.md", "README.md", "server.json", "test.mjs"]) {
+    assert.ok(pkg.files.includes(expected), `package files missing ${expected}`);
+  }
+  assert.doesNotMatch(JSON.stringify(pkg), /edifact/i);
 });
 
 console.log(`\n${passed} passed`);
