@@ -1,4 +1,4 @@
-// Tool definitions for the SignalEDI MCP server.
+﻿// Tool definitions for the SignalEDI MCP server.
 //
 // Pure and dependency-free: each tool carries a JSON Schema `inputSchema`
 // (the MCP wire format) plus a `handler(client, args)`. `index.mjs` registers
@@ -8,23 +8,9 @@
 import { appendDemoFooter, demoModeToolError, KEYED_ONLY_TOOLS } from "./demo.mjs";
 import { explainEdiError, lookupX12 } from "./x12-dictionary.mjs";
 import { renderTestDocument } from "./templates.mjs";
+import { errorResult, ok, requestId, validateMutationArgs } from "./protocol.mjs";
 
 /** @typedef {import("./client.mjs").SignalEDIClient} SignalEDIClient */
-
-/** Wrap a JSON-serializable result as MCP text content. */
-function ok(value) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-  };
-}
-
-/** Wrap an error as an MCP tool error result (so the model sees it, not a crash). */
-function fail(message) {
-  return {
-    isError: true,
-    content: [{ type: "text", text: message }],
-  };
-}
 
 /** Minimal required-string check; richer validation is the API's job. */
 function requireString(args, key) {
@@ -40,13 +26,13 @@ export const TOOLS = [
   {
     name: "parse_edi",
     description:
-      "Parse a raw X12/EDIFACT EDI interchange (e.g. an 850 purchase order, 810 invoice, or 856 ASN) into structured JSON plus a validation summary. Pass the full raw EDI text including the ISA/GS envelope.",
+      "Parse a raw X12 EDI interchange (e.g. an 850 purchase order, 810 invoice, or 856 ASN) into structured JSON plus a validation summary. Pass the full raw EDI text including the ISA/GS envelope.",
     inputSchema: {
       type: "object",
       properties: {
         content: {
           type: "string",
-          description: "The full raw EDI document text (ISAâ€¦IEA).",
+          description: "The full raw EDI document text (ISA├óΓé¼┬ªIEA).",
         },
       },
       required: ["content"],
@@ -79,6 +65,8 @@ export const TOOLS = [
   },
   {
     name: "send_outbound_document",
+    mutation: true,
+    requiredScopes: ["edi:write"],
     description:
       "Send an outbound EDI document to a trading partner. SignalEDI serializes the JSON payload into valid EDI and delivers it; the call returns a document id and status and is acknowledged asynchronously via webhook.",
     inputSchema: {
@@ -103,8 +91,10 @@ export const TOOLS = [
           description: "Optional metadata echoed back on lifecycle webhooks.",
           additionalProperties: true,
         },
+        confirm: { type: "boolean", const: true, description: "Explicitly confirm this external send." },
+        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
       },
-      required: ["partnerId", "documentTypeCode", "payload"],
+      required: ["partnerId", "documentTypeCode", "payload", "confirm", "idempotencyKey"],
       additionalProperties: false,
     },
     handler: async (client, args) => {
@@ -113,14 +103,11 @@ export const TOOLS = [
       if (typeof args?.payload !== "object" || args.payload === null || Array.isArray(args.payload)) {
         throw new Error('"payload" is required and must be a JSON object.');
       }
+      const { confirm: _confirm, idempotencyKey, ...input } = args;
       return ok(
         await client.sendOutbound({
-          partnerId,
-          documentTypeCode,
-          payload: args.payload,
-          ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
-          ...(args.metadata ? { metadata: args.metadata } : {}),
-        }),
+          ...input,
+        }, { idempotencyKey, requestId: requestId() }),
       );
     },
   },
@@ -135,7 +122,7 @@ export const TOOLS = [
           type: "integer",
           minimum: 1,
           maximum: 100,
-          description: "Max rows to return (1â€“100; the server caps at 100).",
+          description: "Max rows to return (1├óΓé¼ΓÇ£100; the server caps at 100).",
         },
       },
       additionalProperties: false,
@@ -168,7 +155,7 @@ export const TOOLS = [
   {
     name: "quickbooks_status",
     description:
-      "Get the QuickBooks Online connection status for your workspace â€” whether QBO is connected, the masked realm id, environment, and any last error. No tokens are returned.",
+      "Get the QuickBooks Online connection status for your workspace ├óΓé¼ΓÇ¥ whether QBO is connected, the masked realm id, environment, and any last error. No tokens are returned.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -178,8 +165,10 @@ export const TOOLS = [
   },
   {
     name: "quickbooks_sync_to_qbo",
+    mutation: true,
+    requiredScopes: ["qbo:write"],
     description:
-      "Push EDI transactions INTO QuickBooks Online (810â†’Invoice, 850â†’Bill, 835â†’Payment). Provide exactly one of: transactionId (one), transactionIds (up to 50), or all:true (every eligible, not-yet-synced transaction). QBO creates are de-duplicated against prior successful syncs.",
+      "Push EDI transactions INTO QuickBooks Online (810├óΓÇáΓÇÖInvoice, 850├óΓÇáΓÇÖBill, 835├óΓÇáΓÇÖPayment). Provide exactly one of: transactionId (one), transactionIds (up to 50), or all:true (every eligible, not-yet-synced transaction). QBO creates are de-duplicated against prior successful syncs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -190,6 +179,8 @@ export const TOOLS = [
           description: "Sync up to 50 specific EDI transaction ids.",
         },
         all: { type: "boolean", description: "Sync all eligible, not-yet-synced transactions." },
+        confirm: { type: "boolean", const: true, description: "Explicitly confirm the QBO write." },
+        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
       },
       additionalProperties: false,
     },
@@ -201,13 +192,16 @@ export const TOOLS = [
       if (!hasOne) {
         throw new Error("Provide transactionId, transactionIds[], or all:true.");
       }
-      return ok(await client.quickBooksSync(args));
+      const { confirm: _confirm, idempotencyKey, ...input } = args;
+      return ok(await client.quickBooksSync(input, { idempotencyKey, requestId: requestId() }));
     },
   },
   {
     name: "quickbooks_export_to_edi",
+    mutation: true,
+    requiredScopes: ["qbo:write", "edi:write"],
     description:
-      "Pull QuickBooks entities and emit them as outbound EDI to a trading partner (Invoiceâ†’810, PurchaseOrderâ†’850). Use dryRun:true to preview the mapped payloads without sending. partnerId is required unless dryRun.",
+      "Pull QuickBooks entities and emit them as outbound EDI to a trading partner (Invoice├óΓÇáΓÇÖ810, PurchaseOrder├óΓÇáΓÇÖ850). Use dryRun:true to preview the mapped payloads without sending. partnerId is required unless dryRun.",
     inputSchema: {
       type: "object",
       properties: {
@@ -216,7 +210,9 @@ export const TOOLS = [
         ids: { type: "array", items: { type: "string" }, description: "Specific QBO ids; omit for most recent." },
         since: { type: "string", description: "ISO date; only entities with TxnDate >= since." },
         maxRows: { type: "integer", minimum: 1, maximum: 100, description: "Cap rows (default/cap 100)." },
-        dryRun: { type: "boolean", description: "Map only â€” return payloads without creating documents." },
+        dryRun: { type: "boolean", description: "Map only ├óΓé¼ΓÇ¥ return payloads without creating documents." },
+        confirm: { type: "boolean", const: true, description: "Explicitly confirm sending the mapped documents." },
+        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
       },
       required: ["entity"],
       additionalProperties: false,
@@ -229,7 +225,12 @@ export const TOOLS = [
       if (args?.dryRun !== true && (typeof args?.partnerId !== "string" || args.partnerId.trim() === "")) {
         throw new Error('"partnerId" is required unless dryRun is true.');
       }
-      return ok(await client.quickBooksExport(args));
+      if (args?.dryRun === true) {
+        const { confirm: _confirm, idempotencyKey: _idempotencyKey, ...input } = args;
+        return ok(await client.quickBooksExport(input));
+      }
+      const { confirm: _confirm, idempotencyKey, ...input } = args;
+      return ok(await client.quickBooksExport(input, { idempotencyKey, requestId: requestId() }));
     },
   },
   {
@@ -244,7 +245,7 @@ export const TOOLS = [
           enum: ["Invoice", "PurchaseOrder", "Customer", "Vendor", "Item"],
           description: "Which QBO entity to list.",
         },
-        limit: { type: "integer", minimum: 1, maximum: 100, description: "Max rows (1â€“100; default 25)." },
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "Max rows (1├óΓé¼ΓÇ£100; default 25)." },
       },
       required: ["entity"],
       additionalProperties: false,
@@ -256,14 +257,20 @@ export const TOOLS = [
   },
   {
     name: "quickbooks_disconnect",
+    mutation: true,
+    requiredScopes: ["qbo:write"],
     description:
-      "Disconnect QuickBooks Online for your workspace â€” revokes the OAuth grant at Intuit and removes the connection. Irreversible without reconnecting.",
+      "Disconnect QuickBooks Online for your workspace ├óΓé¼ΓÇ¥ revokes the OAuth grant at Intuit and removes the connection. Irreversible without reconnecting.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        confirm: { type: "boolean", const: true, description: "Explicitly confirm disconnecting QBO." },
+        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
+      },
+      required: ["confirm", "idempotencyKey"],
       additionalProperties: false,
     },
-    handler: async (client) => ok(await client.quickBooksDisconnect()),
+    handler: async (client, args) => ok(await client.quickBooksDisconnect({ idempotencyKey: args.idempotencyKey, requestId: requestId() })),
   },
   {
     name: "list_partner_kits",
@@ -356,6 +363,60 @@ export const TOOLS = [
     },
     handler: async (_client, args) => ok(lookupX12(requireString(args, "query"))),
   },
+  // Uplift aliases (DEVELOPER_AND_INTEGRATION_UPLIFT_FSD §3.2) — same handlers,
+  // spec-facing names for Cursor/Claude Desktop tool discovery.
+  {
+    name: "validate_x12_structure",
+    description:
+      "Alias for validate_edi — validate a raw X12 interchange structure and return a validation summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Full raw EDI document text." },
+      },
+      required: ["content"],
+      additionalProperties: false,
+    },
+    handler: async (client, args) => {
+      const content = requireString(args, "content");
+      return ok(await client.validate(content));
+    },
+  },
+  {
+    name: "parse_segments",
+    description:
+      "Alias for parse_edi — parse raw X12 into structured JSON plus validation summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Full raw EDI document text." },
+      },
+      required: ["content"],
+      additionalProperties: false,
+    },
+    handler: async (client, args) => {
+      const content = requireString(args, "content");
+      return ok(await client.parse(content));
+    },
+  },
+  {
+    name: "lookup_element_definition",
+    description:
+      "Alias for lookup_x12 — search segment maps and ack codes (850/810/856/837 dictionaries).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Segment id, element keyword, or ack code." },
+        element: { type: "string", description: "Alias for query when prompting by element name." },
+      },
+      additionalProperties: false,
+    },
+    handler: async (_client, args) => {
+      const query = (args?.query || args?.element || "").trim();
+      if (!query) throw new Error('Provide query or element.');
+      return ok(lookupX12(query));
+    },
+  },
 
 ];
 
@@ -373,20 +434,38 @@ export function getTool(name) {
  */
 export async function callTool(client, name, args) {
   const tool = getTool(name);
-  if (!tool) return fail(`Unknown tool: ${name}`);
+  if (!tool) return errorResult("UNKNOWN_TOOL", `Unknown tool: ${name}`, { tool: name });
 
   if (client.demoMode && KEYED_ONLY_TOOLS.has(name)) {
     return demoModeToolError(name);
   }
 
+  const mutationError = validateMutationArgs(tool, args || {});
+  if (mutationError) return mutationError;
+  const startedAt = Date.now();
+
   try {
     const result = await tool.handler(client, args || {});
+    emitMetric({ tool: name, ok: !result.isError, latencyMs: Date.now() - startedAt });
     if (client.demoMode && !result.isError) {
       return appendDemoFooter(result);
     }
     return result;
   } catch (err) {
     const status = err && typeof err.status === "number" ? ` (HTTP ${err.status})` : "";
-    return fail(`${tool.name} failed${status}: ${err?.message || String(err)}`);
+    const code = typeof err?.code === "string" ? err.code : "TOOL_FAILED";
+    emitMetric({ tool: name, ok: false, code, latencyMs: Date.now() - startedAt });
+    return errorResult(code, `${tool.name} failed${status}: ${err?.message || String(err)}`, {
+      status: err?.status,
+      tool: name,
+    });
   }
+}
+
+function emitMetric(event) {
+  if (process.env.SIGNALEDI_MCP_TELEMETRY === "0") return;
+  process.stderr.write(`[signaledi-mcp] metric ${JSON.stringify({
+    at: new Date().toISOString(),
+    ...event,
+  })}\n`);
 }
