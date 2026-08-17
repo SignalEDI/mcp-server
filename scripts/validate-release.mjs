@@ -201,10 +201,41 @@ if (process.argv.includes("--published")) {
     check(npmMetadata.mcpName === pkg.mcpName, "published npm ownership marker does not match");
     check(Boolean(npmMetadata.dist?.integrity && npmMetadata.dist?.tarball), "published npm artifact metadata is incomplete");
   }
-  const registryMetadata = await fetchJson(`https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(server.name)}`, "official MCP Registry");
-  const entries = Array.isArray(registryMetadata?.servers) ? registryMetadata.servers : [];
-  const match = entries.find((entry) => entry?.server?.name === server.name && entry.server.version === pkg.version && entry.server.packages?.some((publishedPackage) => publishedPackage.registryType === "npm" && publishedPackage.identifier === pkg.name && publishedPackage.version === pkg.version));
-  check(Boolean(match), "official MCP Registry does not contain the exact package version");
+  const registryEntry = await fetchJson(
+    `https://registry.modelcontextprotocol.io/v0.1/servers/${encodeURIComponent(server.name)}/versions/${encodeURIComponent(pkg.version)}`,
+    "official MCP Registry exact version",
+  );
+  if (registryEntry) {
+    check(
+      registryEntry?.server?.name === server.name && registryEntry.server.version === pkg.version,
+      "official MCP Registry exact-version endpoint returned a different name or version",
+    );
+    const official = registryEntry?._meta?.["io.modelcontextprotocol.registry/official"];
+    check(
+      official?.status === "active" && official?.isLatest === true,
+      "official MCP Registry version is not the active latest record",
+    );
+    function canonicalize(value) {
+      if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value)
+            .filter(([childKey, childValue]) => !(
+              ["isRequired", "isSecret"].includes(childKey) && childValue === false
+            ))
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([childKey, childValue]) => [childKey, canonicalize(childValue)]),
+        );
+      }
+      return value;
+    }
+    const expectedCanonical = JSON.stringify(canonicalize(server));
+    const actualCanonical = JSON.stringify(canonicalize(registryEntry.server));
+    check(
+      expectedCanonical === actualCanonical,
+      "official MCP Registry immutable manifest does not exactly match server.json",
+    );
+  }
 }
 
 if (failures.length > 0) {
