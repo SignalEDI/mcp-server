@@ -1,170 +1,307 @@
-# SignalEDI MCP Server
+# SignalEDI Developer MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes the
-SignalEDI Core API (`/api/v1`) as tools, so AI clients — **Claude Desktop, Cursor,
-Windsurf, Claude Code**, and any other MCP host — can parse, validate, send, and
-inspect X12 EDI documents directly in a conversation or agent loop.
+Connect an AI coding assistant to SignalEDI to discover, scaffold, validate, and test X12 integrations. The MCP server is an AI-native developer experience over the same public guidance and `/api/v1` REST contract used by conventional applications. It complements—not replaces—SignalEDI's REST API, OpenAPI specification, webhooks, SDKs, and documentation.
 
-It is mostly a thin adapter over the hosted SignalEDI engine, with a few local X12
-helper surfaces for demo mode and model grounding: synthetic templates, a small
-validation/error dictionary, prompts, and bundled resources. The hosted API remains
-the source of truth for production parse, validate, send, transaction, kit, and
-QuickBooks flows.
+The package is an uplift of SignalEDI's existing MCP adapter. Version 0.5 adds public developer discovery, resource templates, code examples, governed connection control-plane tools, strict tool-input validation, and explicit capability profiles while retaining the existing parser, transaction, partner-kit, and QuickBooks adapters.
 
 | | |
 | --- | --- |
-| **Package** | `@signaledi/mcp-server` (npm) |
-| **MCP Registry** | `io.github.SignalEDI/mcp-server` ([registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io)) |
-| **Transport** | stdio |
-| **Runtime** | Node 18+ (uses global `fetch`) |
-| **Runtime deps** | `@modelcontextprotocol/sdk` only |
-| **Auth** | Optional — **demo mode** without a key (parse/validate via public playground; generate/dictionary tools local); set `SIGNALEDI_API_KEY` for send/partner/transaction/QBO tools. |
+| Package | `@signaledi/mcp-server` |
+| MCP Registry | `io.github.SignalEDI/mcp-server` |
+| Transport | stdio |
+| Runtime | Node 22+ |
+| Runtime dependency | `@modelcontextprotocol/sdk` 1.30.0 (2025 protocol generation) |
+| Default access | Always keyless `docs`; authenticated tools require explicit `sandbox` or `production` |
 
-Discoverable in the official MCP Registry and the directories that crawl it
-(Smithery, Glama, mcp.so, PulseMCP). The `server.json` in this folder is the registry
-manifest; `package.json` carries the matching `mcpName` ownership marker.
+## Capability profiles
+
+Set `SIGNALEDI_MCP_PROFILE` to one of these profiles. Tool discovery and direct tool calls are both restricted to the active profile.
+
+| Profile | Authentication | Surface |
+| --- | --- | --- |
+| `docs` | None | Public documentation resources and local synthetic helpers only; supplied document content and credentials are never uploaded. The OpenAPI resource performs a content-free public GET. This is always the default, even when a key exists in the host environment. |
+| `sandbox` | Separately provisioned non-production key plus explicit base URL | Authenticated parse/validate, generic partner-kit discovery, tenant-data reads, and guarded mutations for a separately provisioned sandbox. Canonical production SignalEDI hosts are refused. |
+| `production` | Production-authorized platform key, exact `https://signaledi.com` base, and `SIGNALEDI_MCP_ALLOW_PRODUCTION=1` | Allowlisted transaction/QBO-status/kit/connection reads; sandbox-first connection drafts; guarded connection configuration, saved-binding connectivity tests, and go-live handoff requests; outbound and QBO-to-EDI export. Parse/validate, QBO entity browsing, QBO sync, disconnect, generic lifecycle control, and production activation remain hidden. |
+
+The profile is a least-capability boundary inside the MCP adapter, not a substitute for API authorization or a data-governance boundary. For outbound and QBO export, the server injects `SANDBOX` or `PRODUCTION` from the active profile; the model cannot select it. The API then binds that value to the selected partner connection. Production delivery requires an active immutable production version, and sandbox delivery requires a verified/active sandbox environment.
+
+Every authenticated call requires the base `platform` scope. Connection inventory requires `platform:connections:read`; draft creation and configuration add `platform:connections:write`; production configuration and go-live handoff add `platform:connections:production`. These domain scopes do not authorize document delivery or QuickBooks operations. Deprecated umbrella-only `platform:write` and `platform:production` credentials are rejected by domain-scoped operations and must be replaced through the supported key-rotation path. Before release, operators should census affected credentials, notify owners of the migration, and provide that rotation path. MCP profile selection never grants a scope.
+
+| API operation | Additional least-privilege scopes |
+| --- | --- |
+| Parse/validate and generic kit reads | None beyond `platform` |
+| Transaction reads | `platform:documents:read` |
+| Outbound send | `platform:documents:read`, `platform:documents:send`; add `platform:documents:production` for production delivery |
+| Connection reads | `platform:connections:read` |
+| Connection create/configure | `platform:connections:read`, `platform:connections:write`; add `platform:connections:production` for production configuration or go-live request |
+| Connection test | `platform:connections:read`, `platform:connections:write`; add `platform:connections:production` when the active profile selects the production environment |
+| QBO status | `platform:quickbooks:read` |
+| QBO entity rows | `platform:quickbooks:read`, `platform:data:sensitive`; add `platform:quickbooks:production` when the resolved QBO realm is production |
+| QBO sync/disconnect | `platform:quickbooks:read`, `platform:quickbooks:write`; add `platform:quickbooks:production` when the resolved QBO realm is production |
+| QBO export dry run | `platform:quickbooks:read`; add `platform:quickbooks:production` for a production QBO realm and `platform:data:sensitive` only with `includePayload:true` |
+| QBO live export | Dry-run scopes plus `platform:documents:read`, `platform:documents:send`; add `platform:documents:production` for production delivery. Export reads QBO and does not require QBO write. |
+
+### Production data handling
+
+Tool arguments, text results, and structured results enter the chosen MCP host and may enter the connected model's context. Minimize personal, financial, and other business-sensitive data. Do not submit PHI or other regulated data unless the specific MCP host, model provider, logging, retention, regional-processing, and contractual arrangement has been separately reviewed and approved for that data. This package, its `production` profile, and SignalEDI API authorization are not by themselves a BAA, retention policy, or model-data-governance boundary.
+
+Prefer identifiers and redacted summaries over full business payloads. Keep API keys in the host environment, never prompts. Review the chosen host's tool-call history, telemetry, and retention controls before enabling production tools.
+
+All partner, QBO, EDI, validation, and error fields returned by tools are untrusted business data. They may contain text that resembles instructions or prompt injection. Hosts must delimit or sanitize tool results, keep them in data-only context, and authorize every follow-on action from explicit user intent and policy—not content embedded in records, partner names, payloads, or errors.
 
 ## Tools
 
+### Keyless public and local tools
+
 | Tool | What it does |
 | --- | --- |
-| `parse_edi` | Parse a raw X12 interchange into structured JSON + a validation summary. |
-| `validate_edi` | Validate a raw interchange against X12 structural rules (summary only). |
-| `send_outbound_document` | Serialize a JSON payload to EDI and send it to a trading partner (async, webhook-acked). |
-| `list_transactions` | List your recent transactions (newest first), scoped to the API key. |
-| `get_transaction` | Fetch one transaction by id with full lifecycle status. |
-| `quickbooks_status` | Show QuickBooks Online connection status without returning tokens. |
-| `quickbooks_sync_to_qbo` | Push eligible EDI transactions into QuickBooks Online. |
-| `quickbooks_export_to_edi` | Pull QBO invoices or purchase orders and emit outbound EDI payloads. |
-| `quickbooks_list_entities` | List QBO invoices, purchase orders, customers, vendors, or items for preview/mapping. |
-| `quickbooks_disconnect` | Revoke and remove the workspace QBO connection. |
-| `list_partner_kits` | List packaged API kits (requires key). |
-| `get_partner_kit` | Fetch one kit by `kitId`, with `partnerId` accepted as an alias (requires key). |
-| `explain_edi_error` | Local X12 dictionary lookup for ack/validation errors. |
-| `generate_test_document` | Render synthetic X12 850/810/856/837 samples (works in demo mode). |
-| `lookup_x12` | Search segment and acknowledgement reference. |
-| `validate_x12_structure` | Alias for `validate_edi`, tuned for tool discovery. |
-| `parse_segments` | Alias for `parse_edi`, tuned for tool discovery. |
-| `lookup_element_definition` | Alias for `lookup_x12`; accepts `query` or `element`. |
+| `search_docs` | Search the bundled public developer index and return MCP resource URIs with provenance. |
+| `get_document_schema` | Return a public baseline for X12 850, 810, 856, or 837 Professional (005010X222A1); explicitly not a partner implementation guide. |
+| `generate_integration_example` | Produce sandbox-safe cURL, Node.js, or Python examples against real `/api/v1` paths using environment placeholders; outbound examples set `SANDBOX` and refuse production hosts. |
+| `generate_test_document` | Render a synthetic X12 850, 810, 856, or 837 Professional (005010X222A1) fixture locally. |
+| `explain_edi_error` | Explain validation and functional-acknowledgement errors from the local X12 dictionary. |
+| `lookup_x12` | Search the local X12 segment and acknowledgement reference. |
+| `lookup_element_definition` | Tool-discovery alias for local X12 lookup. |
 
-Bad arguments and API errors are returned as structured MCP tool errors with stable
-codes (so the model can recover from them) rather than crashing the server. Results
-include both backwards-compatible text content and native `structuredContent`.
+### Authenticated sandbox parse and validation tools
 
-### Mutation safety
+| Tool | What it does |
+| --- | --- |
+| `parse_edi` | Parse a raw X12 interchange into structured JSON and a validation summary. |
+| `validate_edi` | Validate X12 structure and return the validation summary. |
+| `parse_segments` | Tool-discovery alias for `parse_edi`. |
+| `validate_x12_structure` | Tool-discovery alias for `validate_edi`. |
 
-Tools that send EDI, write to QuickBooks, or disconnect QuickBooks require both
-`confirm: true` and a unique `idempotencyKey` (at least eight characters). The
-server adds a request id, tool name, and idempotency header to outbound API calls.
-Dry-run QuickBooks export remains available without confirmation. Tool listings
-advertise read-only versus destructive behavior and required capability scopes.
+### Authenticated generic-kit tools (`sandbox` and `production`)
 
-The client rejects non-HTTPS base URLs except for localhost, caps EDI payloads at
-64 KiB, retries transient failures within a total deadline, and emits redacted
-per-tool latency/success metrics to stderr. Set `SIGNALEDI_MCP_TELEMETRY=0` to
-disable local metric lines.
+| Tool | What it does |
+| --- | --- |
+| `list_partner_kits` | List generic SignalEDI API kits. |
+| `get_partner_kit` | Fetch one generic kit by catalog id. |
+| `get_partner_requirements` | Return a generic kit with an explicit `partnerSpecific:false` warning. |
+
+### Explicit environment-profile data reads
+
+These tenant-data tools are never enabled merely because a key is present. Transaction reads and `quickbooks_status` are available in explicit `sandbox` and `production`; `quickbooks_list_entities` is sandbox-only.
+
+| Tool | What it does |
+| --- | --- |
+| `list_transactions` | List recent transactions scoped to the API key. |
+| `get_transaction` | Fetch one owned transaction and its lifecycle status. |
+| `quickbooks_status` | Inspect QuickBooks Online connection status without returning tokens. |
+| `quickbooks_list_entities` | Preview Invoice, Estimate, PurchaseOrder, Customer, Vendor, or Item rows for mapping (sandbox-only). |
+
+### Governed connection control plane (`sandbox` and `production`)
+
+Connection tools operate on the public `/api/v1/connections` contract. MCP applies a second response allowlist over the API's sanitized representation: it may return opaque gateway/evidence references and configured-status booleans, but never stored credentials, secret references, raw transport configuration, private keys, certificates, or tokens.
+
+| Tool | What it does |
+| --- | --- |
+| `list_connections` | Cursor-page tenant-scoped AS2/SFTP and legitimate legacy API connection summaries with optional partner/lifecycle filters. |
+| `get_connection` | Inspect safe environment, gateway, approval, test-coverage, readiness, and next-action state for one AS2/SFTP or legacy API connection. |
+| `create_connection_draft` | Create or recover an idempotent sandbox-first `DRAFT`; `created` distinguishes insertion from matching reuse, and it cannot activate production. |
+| `configure_connection` | Bind an existing gateway reference and constrained X12 ISA/GS identifiers to an AS2/SFTP `SANDBOX` or `PRODUCTION` environment; the server owns ISA15 and accepts no credential material. Production configuration requires `platform:connections:production` and still does not activate delivery. Legacy API rows remain read-only here and use the governed API-connections surface. |
+| `test_connection` | Test the exact saved connection in the environment injected from the active profile. The operation causes partner-network egress, records sanitized evidence, requires host-enforced review plus an idempotency key, and never accepts endpoints or credentials or activates production. |
+| `request_connection_go_live` | Ask the API to move a server-proven `READY` connection only to `GO_LIVE_APPROVED`. SignalEDI staff activation remains a separate MFA/governance operation. |
+
+There is deliberately no generic lifecycle-transition tool. `test_connection` can create authoritative connectivity evidence for the exact saved binding; intermediate testing/certification stages otherwise come from evidence or onboarding-project state, not model claims. There are no production activation, rollback, or isolation tools.
+
+### Explicit write-profile tools
+
+| Tool | What it does |
+| --- | --- |
+| `send_outbound_document` | Submit an outbound EDI document in the active sandbox/production environment. |
+| `quickbooks_sync_to_qbo` | Push a bounded transaction selection into QBO (sandbox-only); buyer and supplier directions are explicit, and `all:true` is cursor-paginated. |
+| `quickbooks_export_to_edi` | Preview or export QBO invoices/purchase orders as EDI in the active sandbox/production environment. Dry-run results are payload-redacted by default; full payloads require `includePayload:true`, `platform:data:sensitive`, and host-enforced `confirm:true`. |
+| `quickbooks_disconnect` | Revoke and remove the workspace QBO connection (sandbox-only). |
+
+Every tool publishes an input and output schema. The server validates inputs itself, rejects unknown fields, and returns both readable text and `structuredContent` with namespaced contract metadata.
+
+## Mutation safety
+
+Write tools are absent from `docs`. Every live mutation requires `confirm:true` and a caller-generated `idempotencyKey` of 8–128 printable ASCII characters without leading/trailing whitespace. Outbound sends, QBO sync/export/disconnect, and connection create/configure/test/go-live requests enforce durable API-side replay protection and are annotated idempotent. QBO disconnect stays sandbox-only and reports a pending Intuit revocation instead of claiming completion. `confirm:true` is an assertion from the calling workflow; the MCP server cannot independently prove that a human approved it, so the host must present the action for review.
+
+The MCP client never automatically retries mutations or parse/validate POSTs. Parse/validate upload synthetic or approved test data and can record sandbox usage, so their annotations remain non-read-only and non-idempotent. Read-only GETs retain bounded transient retry behavior.
+
+Custom base URLs are rejected unless `SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL=1` is set after the destination is verified. URLs containing credentials, paths, queries, or fragments are rejected. HTTP is allowed only for localhost and still requires the custom-host opt-in.
+
+The adapter caps raw EDI inputs at 65,536 UTF-8 bytes, serialized JSON request bodies at 1 MiB, and API responses at 4 MiB. The input schemas publish character/collection bounds; byte limits are rechecked immediately before network use, and streamed responses are cancelled when they cross the cap.
+
+## Resources and prompts
+
+Stable guidance is exposed as resources rather than action tools:
+
+- `signaledi://quickstart`
+- `signaledi://openapi`
+- `signaledi://developer-workflows`
+- `signaledi://x12-reference`
+- `signaledi://documents/{transactionSet}/schema`
+
+The document schema is also advertised as a resource template. Prompts include `scaffold-integration`, `onboard-partner`, and `debug-rejection`; scaffold and onboarding prompts default to synthetic data and avoid writes until an isolated sandbox is confirmed.
 
 ## Quick start
 
-1. **Try without a key (demo mode).** Run `npx -y @signaledi/mcp-server` with no env vars —
-   `parse_edi` and `validate_edi` call the public playground; `generate_test_document`,
-   `explain_edi_error`, `lookup_x12`, and the alias tools use local X12 templates/dictionary
-   data. Keyed tools return a structured `demo_mode` error with a link to create a key.
-2. **Add a platform key for production flows.** Create a workspace key with the `platform`
-   scope at [signaledi.com/console/keys](https://signaledi.com/console/keys) and set
-   `SIGNALEDI_API_KEY`.
+Run the public docs profile:
 
-### One-click install
+```bash
+npx -y @signaledi/mcp-server@0.5.0
+```
 
-- **Cursor:** [Install in Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=signaledi&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzaWduYWxlZGkvbWNwLXNlcnZlciJdLCJlbnYiOnsiU0lHTkFMRURJX0FQSV9LRVkiOiIifX0) (same deeplink as the developer site chip).
-- **Claude Code:** `claude mcp add signaledi -- npx -y @signaledi/mcp-server`
-
-### Claude Desktop / Claude Code
-
-Add to your MCP config (`claude_desktop_config.json`, or `.mcp.json` for Claude Code):
+Configure the authenticated sandbox profile only after a non-production base and key have been provisioned. Claude Code project config (`.mcp.json`) expands `${NAME}` from the host environment:
 
 ```json
 {
   "mcpServers": {
     "signaledi": {
       "command": "npx",
-      "args": ["-y", "@signaledi/mcp-server"],
+      "args": ["-y", "@signaledi/mcp-server@0.5.0"],
       "env": {
-        "SIGNALEDI_API_KEY": "sk_live_…"
+        "SIGNALEDI_MCP_PROFILE": "sandbox",
+        "SIGNALEDI_API_KEY": "${SIGNALEDI_SANDBOX_API_KEY}",
+        "SIGNALEDI_BASE_URL": "${SIGNALEDI_SANDBOX_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "1"
       }
     }
   }
 }
 ```
 
-### Cursor / Windsurf
+On native Windows, Claude Code must launch the npm shim through `cmd`:
 
-Same shape under the editor's MCP settings (`command: npx`, `args: ["-y",
-"@signaledi/mcp-server"]`, and the `SIGNALEDI_API_KEY` env var).
+```json
+{
+  "mcpServers": {
+    "signaledi": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@signaledi/mcp-server@0.5.0"],
+      "env": {
+        "SIGNALEDI_MCP_PROFILE": "sandbox",
+        "SIGNALEDI_API_KEY": "${SIGNALEDI_SANDBOX_API_KEY}",
+        "SIGNALEDI_BASE_URL": "${SIGNALEDI_SANDBOX_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "1"
+      }
+    }
+  }
+}
+```
 
-## Demo mode
+Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
 
-Without a key, the server runs in demo mode (stderr notice): `parse_edi` and `validate_edi` call the public playground; local template/dictionary tools run without network; keyed tools return JSON `{ "error": "demo_mode" }`; successful demo results append `— demo mode; responses rate-limited`.
+```json
+{
+  "mcpServers": {
+    "signaledi": {
+      "command": "npx",
+      "args": ["-y", "@signaledi/mcp-server@0.5.0"],
+      "env": {
+        "SIGNALEDI_MCP_PROFILE": "sandbox",
+        "SIGNALEDI_API_KEY": "${env:SIGNALEDI_SANDBOX_API_KEY}",
+        "SIGNALEDI_BASE_URL": "${env:SIGNALEDI_SANDBOX_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "1"
+      }
+    }
+  }
+}
+```
+
+VS Code uses `.vscode/mcp.json`, a top-level `servers` object, and a password input for secrets:
+
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "signaledi-api-key",
+      "description": "SignalEDI non-production sandbox API key",
+      "password": true
+    },
+    {
+      "type": "promptString",
+      "id": "signaledi-api-base",
+      "description": "Verified non-production SignalEDI API base URL"
+    }
+  ],
+  "servers": {
+    "signaledi": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@signaledi/mcp-server@0.5.0"],
+      "env": {
+        "SIGNALEDI_MCP_PROFILE": "sandbox",
+        "SIGNALEDI_API_KEY": "${input:signaledi-api-key}",
+        "SIGNALEDI_BASE_URL": "${input:signaledi-api-base}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "1"
+      }
+    }
+  }
+}
+```
+
+For a provisioned local sandbox, add the following values to the chosen client's `env` object, using that client's environment-reference syntax for the key:
+
+```json
+{
+  "SIGNALEDI_MCP_PROFILE": "sandbox",
+  "SIGNALEDI_API_KEY": "<host environment reference to SIGNALEDI_SANDBOX_API_KEY>",
+  "SIGNALEDI_BASE_URL": "http://localhost:3100",
+  "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "1"
+}
+```
+
+Production is an explicit, fail-closed opt-in. Use only the canonical origin and keep the key in the MCP host environment:
+
+```json
+{
+  "SIGNALEDI_MCP_PROFILE": "production",
+  "SIGNALEDI_API_KEY": "<host environment reference to SIGNALEDI_PRODUCTION_API_KEY>",
+  "SIGNALEDI_BASE_URL": "https://signaledi.com",
+  "SIGNALEDI_MCP_ALLOW_PRODUCTION": "1"
+}
+```
+
+The production profile does not accept custom hosts or a missing/implicit base. Removing any one of the profile, key, canonical base, or opt-in prevents startup.
+
+Never paste real keys or secrets into prompts. MCP server environment variables are resolved by the host process, not by the model.
 
 ## Configuration
 
-| Env var | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `SIGNALEDI_API_KEY` | — (demo mode) / ✅ (full access) | — | Workspace key with the `platform` scope for send/partner/QBO tools. |
-| `SIGNALEDI_BASE_URL` | — | `https://signaledi.com` | Point at a custom domain or a preview deployment. |
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `SIGNALEDI_MCP_PROFILE` | `docs` | Capability boundary: `docs`, explicit `sandbox`, or explicit `production`. Supplying a key alone never enables remote tools. |
+| `SIGNALEDI_API_KEY` | — | Least-privilege workspace key; ignored in `docs`, required in authenticated profiles. It needs base `platform` plus each tool's published domain scopes. Do not issue legacy umbrella write/production scopes to an MCP host. |
+| `SIGNALEDI_BASE_URL` | Public production base for the content-free docs OpenAPI GET only | Sandbox requires an explicit verified non-production origin; production requires exactly `https://signaledi.com`. |
+| `SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL` | — | Set to `1` only for a verified localhost, preview, or sandbox host. |
+| `SIGNALEDI_MCP_ALLOW_PRODUCTION` | — | Set to `1` as the independent production opt-in; ignored by other profiles. |
+| `SIGNALEDI_MCP_TELEMETRY` | enabled | Set to `0` to disable redacted local metric lines. Metrics contain tool, profile, result/code, latency, and request id—not payloads or secrets. |
 
-The server speaks JSON-RPC over **stdout**; all logs go to **stderr**, so it never
-corrupts the protocol channel.
+The server writes JSON-RPC only to stdout and logs only to stderr.
 
-## Example prompts
+## Deliberately deferred surfaces
 
-> "Parse this 850 and tell me the PO number and ship-to." *(paste raw EDI)*
-> "Validate this interchange and list any structural errors."
-> "Show my last 10 transactions and flag any that missed SLA."
-> "Send an 810 invoice to partner `acme-co` with these line items…"
+The MCP does not fabricate hosted capabilities that are not yet backed by stable, tenant-isolated APIs:
+
+- `suggest_mapping` and `validate_mapping` wait for the structured mapping-validation service and partner-guide provenance contract.
+- `create_sandbox_project`, `create_test_partner`, `submit_test_document`, and `get_test_results` wait for stable tenant-isolated lifecycle/test routes.
+- `generate_webhook_fixture` and `verify_webhook_signature` wait for one canonical runtime signing contract; the current primary delivery/replay path and remediation path sign differently.
+- Credential rotation, raw gateway configuration, mapping deployment, arbitrary partner edits, manual evidence/lifecycle claims, production activation/rollback/isolation, QBO sync/disconnect, and document retransmission are not exposed in production. The production profile is limited to the allowlisted reads and server-gated draft/configuration/connectivity-test/go-live-request/outbound/QBO-export operations described above.
 
 ## Local development
 
 ```bash
-node test.mjs        # dependency-free unit tests (mock fetch, no network)
-SIGNALEDI_API_KEY=… npm start   # run the stdio server against the live API
+node test.mjs
+npm run test:stdio
+npm start
 ```
 
-The client (`src/client.mjs`) and tools (`src/tools.mjs`) are pure and unit-tested;
-`src/index.mjs` is the only file that depends on the MCP SDK.
+Unit tests use synthetic data and mock HTTP. The stdio integration tests exercise docs, sandbox, and production discovery without live API calls. See `RELEASE_NOTES_0.5.0.md` for release gates.
 
-## How it fits
+## Architecture and repository authority
 
+```text
+MCP client
+  <-> @signaledi/mcp-server over stdio
+      |- public documentation resources and local synthetic helpers
+      `- profile-gated calls to the conventional SignalEDI /api/v1 REST API
 ```
-MCP client (Claude/Cursor/…) ⇄ @signaledi/mcp-server (stdio) ⇄ SignalEDI Core API (/api/v1)
-                                      └ local X12 templates/dictionary/resources for demo + guidance
-```
 
-See the [SDK](../../packages/sdk) for a programmatic TypeScript client and
-[`docs/openapi/v1`](../../docs/openapi/v1) for the full API reference.
-## GitHub mirror
-
-[![npm version](https://img.shields.io/npm/v/@signaledi/mcp-server.svg)](https://www.npmjs.com/package/@signaledi/mcp-server)
-[![MCP Registry](https://img.shields.io/badge/MCP-io.github.SignalEDI%2Fmcp--server-blue)](https://registry.modelcontextprotocol.io)
-
-The public GitHub repo [`SignalEDI/mcp-server`](https://github.com/SignalEDI/mcp-server) mirrors **this folder only**. The GitLab monorepo stays the source of truth; the mirror updates on each npm publish (see [`MIRROR.md`](MIRROR.md) and the operator runbook [`docs/internal/runbooks/GITHUB_MCP_MIRROR.md`](../../../docs/internal/runbooks/GITHUB_MCP_MIRROR.md)).
-
-### Examples
-
-| Script | Purpose |
-| --- | --- |
-| [`examples/parse-demo.mjs`](examples/parse-demo.mjs) | Parse synthetic 850 via demo-mode client |
-| [`examples/generate-validate.mjs`](examples/generate-validate.mjs) | Generate 850 locally, then validate |
-| [`examples/agent-transcript.md`](examples/agent-transcript.md) | Illustrative agent conversation (no secrets) |
-
-Run from this directory: `node examples/parse-demo.mjs`
-
-Issue templates for the GitHub repo live under [`examples/.github/ISSUE_TEMPLATE/`](examples/.github/ISSUE_TEMPLATE/) (copied to repo root on mirror sync). Layout: [`examples/github-mirror-layout.md`](examples/github-mirror-layout.md).
-
-### Mirror security checklist
-
-Before every mirror push:
-
-- No internal URLs, API keys, engine code, or employee/customer data in the tree
-- Examples use synthetic EDI only; transcripts are fictional
-- Badges and links point at public npm, MCP registry, and signaledi.com only
+The standalone GitHub repository `SignalEDI/mcp-server` is the canonical source and sole automated npm/MCP Registry publish authority. The private `SignalEDI/platform` repository may retain a synchronized validation snapshot for its hosted API/backend contracts; see `MIRROR.md`. All examples are synthetic and must remain free of customer, health, financial, and credential data.

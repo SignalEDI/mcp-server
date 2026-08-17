@@ -1,8 +1,8 @@
 # Agent transcript excerpt (illustrative)
 
-**User:** Parse this 850 and tell me the PO number.
+**User:** Generate a synthetic 850 and tell me the example PO number.
 
-**Assistant:** *(calls `generate_test_document` with type 850, then `parse_edi`)*
+**Assistant:** *(in the keyless docs profile, calls `generate_test_document` with type 850 and inspects the synthetic fixture locally)*
 
 The purchase order number is **PO-DEMO-001** (synthetic sample).
 
@@ -12,4 +12,6 @@ The purchase order number is **PO-DEMO-001** (synthetic sample).
 
 Segment count mismatch — regenerate the transaction set with a matching SE01 count.
 
-— demo mode; responses rate-limited
+— docs profile; bundled public or local synthetic result
+
+`parse_edi` becomes available only after explicit `sandbox` selection with a separately provisioned non-production base and key. It uploads synthetic or approved test data and can record sandbox usage. Tenant transaction and QuickBooks data reads share the same sandbox boundary. Version 0.5 has no developer or production remote profile.

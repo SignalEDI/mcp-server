@@ -1,24 +1,37 @@
-# GitHub mirror sync policy
+# Repository and platform snapshot policy
 
-The canonical MCP server source lives in this GitLab monorepo at
-`signaledi-integrations/integrations/mcp/`.
+[`SignalEDI/mcp-server`](https://github.com/SignalEDI/mcp-server) is the
+canonical source and sole automated publish authority for
+`@signaledi/mcp-server` and `io.github.SignalEDI/mcp-server`.
 
-The public GitHub repo [`signaledi/mcp-server`](https://github.com/signaledi/mcp-server)
-mirrors **this folder only** (squash-init acceptable; history not required).
+The private `SignalEDI/platform` repository may retain a synchronized validation
+snapshot at `signaledi-integrations/integrations/mcp/` so its hosted API and MCP
+adapter contracts can be validated together. That snapshot is not a package or
+registry publish source.
 
-## When to update the mirror
+## Release authority
 
-- On each `@signaledi/mcp-server` npm publish (manual step in the publish runbook until automated).
-- Copy: `src/`, `examples/`, `README.md`, `LICENSE`, `package.json`, `server.json`, `test.mjs`.
+- Changes originate here and merge through this repository's protected `main` branch.
+- Only a protected stable `mcp-vX.Y.Z` tag on the exact current `main` commit may publish.
+- The tag workflow publishes npm through its configured trusted publisher, verifies the
+  exact npm version, and only then publishes the MCP Registry record.
+- The platform workflow is validation-only. It must never accept release tags, npm
+  credentials, or registry-publish authority.
 
-## Security checklist (every mirror push)
+## Platform snapshot updates
 
-- [ ] No internal URLs or employee data
-- [ ] No API keys or engine source outside this adapter package
-- [ ] README badges point at public npm + MCP registry only
+After an approved standalone release change merges, copy the package source,
+tests, examples, lockfile, manifests, and release notes into the platform
+snapshot without `node_modules`. Preserve platform-only repository workflows and
+runbooks, run both repositories' validation, and review any drift explicitly.
 
-## Source of truth
+## Security checklist
 
-GitLab monorepo wins on conflicts. GitHub is a read-only distribution mirror for discoverability.
+- [ ] No internal URLs, employee data, customer data, or production EDI
+- [ ] No API keys, credentials, or engine source outside this adapter
+- [ ] README badges and repository metadata point only at public distribution surfaces
+- [ ] All examples and fixtures remain synthetic
 
-Full runbook: [docs/internal/runbooks/GITHUB_MCP_MIRROR.md](../../../docs/internal/runbooks/GITHUB_MCP_MIRROR.md).
+On conflicts, this standalone repository wins. Public consumers should follow
+this repository's `README.md`; platform developers should treat the monorepo copy
+as a synchronized validation snapshot.

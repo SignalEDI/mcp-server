@@ -1,84 +1,249 @@
-# Publishes @signaledi/mcp-server from the public mirror repo.
-# Setup: repo secret `NPM_TOKEN` â€” granular npm automation token scoped to @signaledi/* publish.
-name: MCP server publish (@signaledi/mcp-server)
+name: Publish stable MCP server release
 
 on:
   push:
     tags:
       - "mcp-v*"
-      - "v*"
-  pull_request:
-    paths:
-      - "src/**"
-      - "package.json"
-      - "server.json"
-      - "test.mjs"
-      - ".github/workflows/mcp-publish.yml"
-  workflow_dispatch: {}
 
 permissions:
   contents: read
 
-jobs:
-  test:
-    name: Install & test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Install
-        run: npm install --no-audit --no-fund
-      - name: Unit tests (mock fetch, no network)
-        run: npm test
-      - name: Pack (dry-run tarball)
-        run: npm pack --dry-run
+concurrency:
+  group: mcp-release-${{ github.ref }}
+  cancel-in-progress: false
 
+jobs:
   publish:
-    name: Publish to npm + MCP Registry
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/mcp-v') || startsWith(github.ref, 'refs/tags/v')
+    name: npm trusted publish, then MCP Registry
+    if: >-
+      github.repository == 'SignalEDI/mcp-server' &&
+      github.repository_id == '1291556004'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
-      - name: Install
-        run: npm install --no-audit --no-fund
-      - name: Guard â€” package.json mcpName matches server.json name
-        run: |
-          PKG_NAME=$(node -p "require('./package.json').mcpName")
-          SRV_NAME=$(node -p "require('./server.json').name")
-          PKG_VER=$(node -p "require('./package.json').version")
-          SRV_VER=$(node -p "require('./server.json').version")
-          SRV_PKG_VER=$(node -p "require('./server.json').packages[0].version")
-          echo "mcpName=$PKG_NAME serverName=$SRV_NAME pkgVer=$PKG_VER srvVer=$SRV_VER srvPkgVer=$SRV_PKG_VER"
-          test "$PKG_NAME" = "$SRV_NAME" || { echo "::error::package.json mcpName != server.json name"; exit 1; }
-          test "$PKG_VER" = "$SRV_VER" || { echo "::error::version mismatch package.json vs server.json"; exit 1; }
-          test "$PKG_VER" = "$SRV_PKG_VER" || { echo "::error::version mismatch vs server.json packages[0]"; exit 1; }
-      - name: Publish to npm
-        run: |
-          test -n "$NPM_TOKEN" || { echo "::error::NPM_TOKEN secret is not set"; exit 1; }
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          PKG_VER=$(node -p "require('./package.json').version")
-          if npm view "@signaledi/mcp-server@${PKG_VER}" version --userconfig .npmrc >/dev/null 2>&1; then
-            echo "npm version ${PKG_VER} already published â€” skipping npm publish"
-          else
-            npm publish --access public --userconfig .npmrc
-          fi
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js for trusted publishing
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install exact dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate package, tests, and release workflow
+        run: npm run validate:release
+      - name: Require protected stable tag on exact current public main
+        shell: bash
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Install mcp-publisher
+          REF_PROTECTED: ${{ github.ref_protected }}
+          REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+          GH_READ_TOKEN: ${{ github.token }}
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-      - name: Authenticate to MCP Registry (GitHub OIDC)
-        run: ./mcp-publisher login github-oidc
+          set -euo pipefail
+          test "$REF_PROTECTED" = "true" || { echo "MCP publishing requires a protected tag ruleset." >&2; exit 1; }
+          test "$REPOSITORY_VISIBILITY" = "public" || { echo "Trusted publishing provenance requires the canonical repository to be public." >&2; exit 1; }
+          if [[ ! "$GITHUB_REF_NAME" =~ ^mcp-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Only stable mcp-vX.Y.Z tags may publish." >&2
+            exit 1
+          fi
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          SERVER_VERSION=$(node -p "require('./server.json').version")
+          REGISTRY_VERSION=$(node -p "require('./server.json').packages[0].version")
+          TAG_VERSION="${GITHUB_REF_NAME#mcp-v}"
+          TAG_SHA=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          read -r MAIN_SHA MAIN_PROTECTED < <(node --input-type=module -e '
+            const response = await fetch(
+              process.env.GITHUB_API_URL + "/repos/" + process.env.GITHUB_REPOSITORY + "/branches/main",
+              { headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: "Bearer " + process.env.GH_READ_TOKEN,
+                "X-GitHub-Api-Version": "2022-11-28",
+              } },
+            );
+            if (!response.ok) process.exit(1);
+            const branch = await response.json();
+            process.stdout.write(branch.commit.sha + " " + String(branch.protected));
+          ')
+          test -n "$MAIN_SHA" || { echo "Unable to resolve canonical GitHub main." >&2; exit 1; }
+          test "$MAIN_PROTECTED" = "true" || { echo "Canonical main must be protected before publishing." >&2; exit 1; }
+          test "$TAG_VERSION" = "$PKG_VERSION" || { echo "tag version does not match package version" >&2; exit 1; }
+          test "$PKG_VERSION" = "$SERVER_VERSION" || { echo "package/server version mismatch" >&2; exit 1; }
+          test "$PKG_VERSION" = "$REGISTRY_VERSION" || { echo "package/registry version mismatch" >&2; exit 1; }
+          test -f "RELEASE_NOTES_${PKG_VERSION}.md" || { echo "release notes are missing" >&2; exit 1; }
+          test "$TAG_SHA" = "$MAIN_SHA" || { echo "release tag must point at current GitHub main" >&2; exit 1; }
+          NPM_VERSION=$(npm --version)
+          test "$(printf '11.5.1\n%s\n' "$NPM_VERSION" | sort -V | head -n 1)" = "11.5.1" || {
+            echo "npm 11.5.1 or newer is required for trusted publishing." >&2
+            exit 1
+          }
+      - name: Install checksum-pinned MCP Registry publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISHER_VERSION="v1.8.1"
+          ASSET="mcp-publisher_linux_amd64.tar.gz"
+          EXPECTED_SHA256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/${ASSET}" \
+            --output "$RUNNER_TEMP/$ASSET"
+          echo "$EXPECTED_SHA256  $RUNNER_TEMP/$ASSET" | sha256sum --check --strict
+          tar xzf "$RUNNER_TEMP/$ASSET" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --help
+      - name: Validate MCP Registry manifest before immutable npm publish
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" validate server.json
+      - name: Re-run release evidence
+        run: |
+          npm test
+          npm run test:stdio
+          npm pack --dry-run
+          node consumer-install-smoke.mjs
+      - name: Pack exact release artifact
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACK_DIR="$RUNNER_TEMP/signaledi-mcp-pack"
+          mkdir -p "$PACK_DIR"
+          npm pack --json --pack-destination "$PACK_DIR" > "$RUNNER_TEMP/signaledi-mcp-pack.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          import { resolve } from "node:path";
+          const [result] = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/signaledi-mcp-pack.json", "utf8"));
+          if (!result?.filename || !result?.integrity) process.exit(1);
+          appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${resolve(process.env.RUNNER_TEMP, "signaledi-mcp-pack", result.filename)}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `integrity=${result.integrity}\n`);
+          NODE
+      - name: Reconfirm current main and publish npm through OIDC
+        shell: bash
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}
+          LOCAL_TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          TAG_SHA=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          read -r MAIN_SHA MAIN_PROTECTED < <(node --input-type=module -e '
+            const response = await fetch(
+              process.env.GITHUB_API_URL + "/repos/" + process.env.GITHUB_REPOSITORY + "/branches/main",
+              { headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: "Bearer " + process.env.GH_READ_TOKEN,
+                "X-GitHub-Api-Version": "2022-11-28",
+              } },
+            );
+            if (!response.ok) process.exit(1);
+            const branch = await response.json();
+            process.stdout.write(branch.commit.sha + " " + String(branch.protected));
+          ')
+          test -n "$MAIN_SHA" && test "$MAIN_PROTECTED" = "true" && test "$TAG_SHA" = "$MAIN_SHA" || {
+            echo "GitHub main is unprotected or advanced during validation; refusing release." >&2
+            exit 1
+          }
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if PUBLISHED_INTEGRITY=$(npm view "${PKG_NAME}@${PKG_VERSION}" dist.integrity 2>/dev/null); then
+            test "$PUBLISHED_INTEGRITY" = "$LOCAL_INTEGRITY" || {
+              echo "Published npm version exists with different package integrity." >&2
+              exit 1
+            }
+            echo "Exact npm artifact is already published; continuing recovery at verification."
+          else
+            npm publish "$LOCAL_TARBALL" --access public
+          fi
+      - name: Verify exact npm package
+        shell: bash
+        env:
+          LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}
+        run: |
+          set -euo pipefail
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          MCP_NAME=$(node -p "require('./package.json').mcpName")
+          for attempt in $(seq 1 12); do
+            LIVE_VERSION=$(npm view "${PKG_NAME}@${PKG_VERSION}" version 2>/dev/null || true)
+            LIVE_MCP_NAME=$(npm view "${PKG_NAME}@${PKG_VERSION}" mcpName 2>/dev/null || true)
+            LIVE_INTEGRITY=$(npm view "${PKG_NAME}@${PKG_VERSION}" dist.integrity 2>/dev/null || true)
+            if [ "$LIVE_VERSION" = "$PKG_VERSION" ] && [ "$LIVE_MCP_NAME" = "$MCP_NAME" ] && [ "$LIVE_INTEGRITY" = "$LOCAL_INTEGRITY" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Exact npm artifact did not become verifiable." >&2
+          exit 1
+      - name: Inspect immutable MCP Registry version for crash recovery
+        id: registry_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const expected = JSON.parse(readFileSync("server.json", "utf8"));
+          const endpoint = new URL(
+            `https://registry.modelcontextprotocol.io/v0.1/servers/${encodeURIComponent(expected.name)}/versions/${encodeURIComponent(expected.version)}`,
+          );
+          const response = await fetch(endpoint, {
+            headers: { Accept: "application/json", "User-Agent": "SignalEDI-MCP-release-recovery" },
+          });
+          if (response.status === 404) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "exists=false\n");
+            process.exit(0);
+          }
+          if (!response.ok) throw new Error(`MCP Registry lookup returned HTTP ${response.status}`);
+          const entry = await response.json();
+          if (entry?.server?.name !== expected.name || entry.server.version !== expected.version) {
+            throw new Error("MCP Registry exact-version endpoint returned a different name or version");
+          }
+          const official = entry?._meta?.["io.modelcontextprotocol.registry/official"];
+          if (official?.status !== "active" || official?.isLatest !== true) {
+            throw new Error("Existing MCP Registry version is not the active latest record");
+          }
+          function canonicalize(value) {
+            if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+            if (value && typeof value === "object") {
+              return Object.fromEntries(
+                Object.entries(value)
+                  .filter(([childKey, childValue]) => !(
+                    ["isRequired", "isSecret"].includes(childKey) && childValue === false
+                  ))
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([childKey, childValue]) => [childKey, canonicalize(childValue)]),
+              );
+            }
+            return value;
+          }
+          const expectedCanonical = JSON.stringify(canonicalize(expected));
+          const actualCanonical = JSON.stringify(canonicalize(entry.server));
+          if (actualCanonical !== expectedCanonical) {
+            throw new Error("Existing immutable MCP Registry version does not exactly match server.json");
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, "exists=true\n");
+          NODE
+      - name: Authenticate to MCP Registry with GitHub OIDC
+        if: steps.registry_state.outputs.exists != 'true'
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
       - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+        if: steps.registry_state.outputs.exists != 'true'
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" publish
+      - name: Verify exact npm and MCP Registry release
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            if npm run validate:release -- --published; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Exact MCP Registry record did not become verifiable." >&2
+          exit 1

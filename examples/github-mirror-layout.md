@@ -1,10 +1,12 @@
-# GitHub mirror layout
+# Standalone repository layout
 
-Public repo root for [`signaledi/mcp-server`](https://github.com/signaledi/mcp-server):
+Canonical package repository root for [`SignalEDI/mcp-server`](https://github.com/SignalEDI/mcp-server):
 
 ```
-LICENSE, README.md, MIRROR.md, package.json, server.json, test.mjs, src/, examples/
+LICENSE, README.md, MIRROR.md, RELEASE_NOTES_*.md, package.json, package-lock.json,
+server.json, stdio-smoke.mjs, consumer-install-smoke.mjs, test.mjs, src/, examples/
 .github/ISSUE_TEMPLATE/  (copy from examples/.github/ISSUE_TEMPLATE/ on sync)
 ```
 
-Operator steps: [`docs/internal/runbooks/GITHUB_MCP_MIRROR.md`](../../../../docs/internal/runbooks/GITHUB_MCP_MIRROR.md).
+Repository and platform-snapshot policy: [`MIRROR.md`](../MIRROR.md). The
+standalone repository owns publication; the platform copy is validation-only.

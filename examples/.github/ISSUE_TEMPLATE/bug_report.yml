@@ -1,16 +1,16 @@
 name: MCP server bug
-description: Problem with @signaledi/mcp-server (public mirror)
+description: Problem with @signaledi/mcp-server
 title: "[mcp-server] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
-      value: Do not paste API keys or production EDI with PII. This repo is a read-only mirror; source of truth is GitLab integrations/mcp.
+      value: Do not paste API keys or production EDI with PII. SignalEDI/mcp-server is the source of truth; include only a minimal, sanitized reproduction.
   - type: input
     id: version
     attributes:
       label: npm version
-      placeholder: "0.3.0"
+      placeholder: "0.5.0"
     validations:
       required: true
   - type: dropdown
