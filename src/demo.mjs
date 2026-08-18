@@ -1,44 +1,37 @@
-﻿/** Demo-mode helpers shared by client + tools. */
+/** Capability-profile helpers shared by client, tools, and startup. */
+
+import { errorResult } from "./protocol.mjs";
 
 export const DEMO_GET_KEY_URL = "https://signaledi.com/console/keys";
-export const DEMO_MODE_FOOTER = "— demo mode; responses rate-limited";
+export const DEMO_MODE_FOOTER = "— docs profile; bundled public or local synthetic result";
+export const MCP_PROFILES = Object.freeze(["docs", "sandbox", "production"]);
 
-/** Tools that require a workspace API key (blocked in demo mode). */
-export const KEYED_ONLY_TOOLS = new Set([
-  "send_outbound_document",
-  "list_transactions",
-  "get_transaction",
-  "quickbooks_status",
-  "quickbooks_sync_to_qbo",
-  "quickbooks_export_to_edi",
-  "quickbooks_list_entities",
-  "quickbooks_disconnect",
-  "list_partner_kits",
-  "get_partner_kit",
-]);
-
-/** @returns {object} MCP tool error payload for demo-gated tools. */
-export function demoModeToolError(toolName) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          {
-            error: "demo_mode",
-            message: `${toolName} requires a workspace API key. Create one at ${DEMO_GET_KEY_URL}.`,
-            getKeyUrl: DEMO_GET_KEY_URL,
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  };
+export function isToolAvailableInProfile(tool, profile) {
+  if (profile === "docs") return tool.localOnly === true;
+  if (profile === "sandbox") return true;
+  return profile === "production" && (tool.localOnly === true || tool.productionSafe === true);
 }
 
-/** Append the demo footer line to successful MCP text results. */
+/** @returns {object} MCP tool error payload for tools outside the active profile. */
+export function profileToolError(toolName, profile) {
+  const guidance = profile === "docs"
+    ? `The docs profile accepts only public-documentation and local tools; it never uploads caller-supplied documents. Choose sandbox only with a separately provisioned non-production API base and key, or production only with the explicit production opt-in and canonical production base. Create a key at ${DEMO_GET_KEY_URL}.`
+    : profile === "production"
+      ? "Production exposes only explicitly allowlisted reads and environment-bound, API-idempotent mutations. It requires the canonical production base, a platform key, and SIGNALEDI_MCP_ALLOW_PRODUCTION=1."
+      : "Sandbox requires a separately provisioned non-production API base and key.";
+  return errorResult(
+    "TOOL_NOT_AVAILABLE_IN_PROFILE",
+    `${toolName} is not available in the ${profile} profile. ${guidance}`,
+    { tool: toolName, profile },
+  );
+}
+
+/** Backwards-compatible name retained for callers of the 0.4 helper. */
+export function demoModeToolError(toolName) {
+  return profileToolError(toolName, "docs");
+}
+
+/** Append the docs-profile footer to successful MCP text results. */
 export function appendDemoFooter(result) {
   if (result?.isError || !Array.isArray(result?.content)) return result;
   return {
@@ -50,17 +43,47 @@ export function appendDemoFooter(result) {
   };
 }
 
-/** Resolve MCP client config from env (mirrors index.mjs startup). */
+/** Resolve MCP client config from environment variables. */
 export function resolveStartupFromEnv(env = process.env) {
-  const apiKey = env.SIGNALEDI_API_KEY?.trim();
+  const providedApiKey = env.SIGNALEDI_API_KEY?.trim();
+  const requestedProfile = env.SIGNALEDI_MCP_PROFILE?.trim().toLowerCase();
+  const profile = requestedProfile || "docs";
+  if (!MCP_PROFILES.includes(profile)) {
+    throw new Error(`SIGNALEDI_MCP_PROFILE must be one of ${MCP_PROFILES.join(", ")}.`);
+  }
+  if (profile !== "docs" && !providedApiKey) {
+    throw new Error(`${profile} profile requires SIGNALEDI_API_KEY.`);
+  }
+
+  const baseUrl = env.SIGNALEDI_BASE_URL?.trim() || undefined;
+  if (profile !== "docs" && !baseUrl) {
+    throw new Error(`${profile} profile requires an explicit SIGNALEDI_BASE_URL.`);
+  }
+  const allowProduction = /^(1|true)$/i.test(env.SIGNALEDI_MCP_ALLOW_PRODUCTION || "");
+  if (profile === "production" && !allowProduction) {
+    throw new Error("production profile requires SIGNALEDI_MCP_ALLOW_PRODUCTION=1.");
+  }
   return {
-    demoMode: !apiKey,
-    apiKey: apiKey || undefined,
-    baseUrl: env.SIGNALEDI_BASE_URL?.trim() || undefined,
+    profile,
+    demoMode: profile === "docs",
+    apiKey: profile === "docs" ? undefined : providedApiKey,
+    baseUrl,
+    baseUrlExplicit: Boolean(baseUrl),
+    allowCustomBaseUrl: /^(1|true)$/i.test(env.SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL || ""),
+    allowProduction,
   };
 }
 
-export function buildDemoStartupLine() {
-  return `SignalEDI MCP running in demo mode — parse/validate/generate_test_document/explain/lookup only. Get a key: ${DEMO_GET_KEY_URL}`;
+export function buildProfileStartupLine(profile) {
+  if (profile === "docs") {
+    return `SignalEDI MCP running in docs profile — public resources and local/synthetic helpers only. Get a key: ${DEMO_GET_KEY_URL}`;
+  }
+  if (profile === "production") {
+    return "SignalEDI MCP running in production profile against the canonical production API; only allowlisted reads and guarded environment-bound mutations are exposed.";
+  }
+  return `SignalEDI MCP running in ${profile} profile against an explicitly configured non-production API base.`;
 }
 
+export function buildDemoStartupLine() {
+  return buildProfileStartupLine("docs");
+}

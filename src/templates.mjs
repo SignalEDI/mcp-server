@@ -8,7 +8,7 @@ const BASE_ISA = (control, setId) =>
  * @param {{ controlNumber?: string, poNumber?: string, date?: string }} overrides
  */
 export function renderTestDocument(type, overrides = {}) {
-  validateOverrides(overrides);
+  validateOverrides(type, overrides);
   const control = overrides.controlNumber ?? "000000001";
   const po = overrides.poNumber ?? "PO-DEMO-001";
   const date = overrides.date ?? "20260101";
@@ -32,7 +32,7 @@ export function renderTestDocument(type, overrides = {}) {
         BASE_ISA(control, "810"),
         "GS*IN*SYNTHVND*SYNTHRCV*20260115*0900*2*X*004010~",
         "ST*810*0001~",
-        `BIG*20260115*INV-DEMO-001*${date}*${po}~`,
+        `BIG*${date}*INV-DEMO-001*20260101*${po}~`,
         "N1*RE*SYNTH REMIT LLC*92*SYNREM01~",
         "IT1*1*12*EA*19.99**VN*SKU-DEMO-100~",
         "TDS*23988~",
@@ -45,7 +45,7 @@ export function renderTestDocument(type, overrides = {}) {
         BASE_ISA(control, "856"),
         "GS*SH*SYNTHVND*SYNTHRCV*20260120*1400*3*X*004010~",
         "ST*856*0001~",
-        "BSN*00*ASN-DEMO-001*20260120*1400~",
+        `BSN*00*ASN-DEMO-001*${date}*1400~`,
         "HL*1**S~",
         "TD1*CTN*2****G*12*LB~",
         "REF*BM*CARTON-DEMO-01~",
@@ -58,9 +58,28 @@ export function renderTestDocument(type, overrides = {}) {
         `ISA*00*          *00*          *ZZ*SYNTHBILL      *ZZ*SYNTHCLR       *260201*1030*U*00501*${control}*0*P*>~`,
         "GS*HC*SYNTHBILL*SYNTHCLR*20260201*1030*4*X*005010X222A1~",
         "ST*837*0001*005010X222A1~",
-        "BPR*I*1250.00*C*CHK****01*SYNBNK01**DA*SYNACCT01*20260201~",
-        "CLM*CLM-DEMO-001*1250.00***11:B:1*Y*A*Y*I~",
-        "SE*4*0001~",
+        `BHT*0019*00*BATCH-DEMO-001*${date}*1030*CH~`,
+        "NM1*41*2*SYNTHETIC SUBMITTER*****46*SYNTHSUB~",
+        "PER*IC*SYNTH SUPPORT*TE*5555550100~",
+        "NM1*40*2*SYNTHETIC RECEIVER*****46*SYNTHCLR~",
+        "HL*1**20*1~",
+        "NM1*85*2*SYNTHETIC BILLING PROVIDER*****XX*1999999999~",
+        "N3*100 TEST AVENUE~",
+        "N4*TEST CITY*NY*10001~",
+        "REF*EI*000000000~",
+        "HL*2*1*22*0~",
+        "SBR*P*18*******CI~",
+        "NM1*IL*1*TEST*PATIENT****MI*SYNTHMEMBER1~",
+        "N3*200 TEST AVENUE~",
+        "N4*TEST CITY*NY*10001~",
+        "DMG*D8*19900101*M~",
+        "NM1*PR*2*SYNTHETIC HEALTH PLAN*****PI*SYNTHPLAN~",
+        "CLM*CLM-DEMO-001*125.00***11:B:1*Y*A*Y*I~",
+        "HI*ABK:M545~",
+        "LX*1~",
+        "SV1*HC:99213*125.00*UN*1***1~",
+        `DTP*472*D8*${date}~`,
+        "SE*23*0001~",
         "GE*1*4~",
         `IEA*1*${control}~`,
       ].join("");
@@ -69,7 +88,7 @@ export function renderTestDocument(type, overrides = {}) {
   }
 }
 
-function validateOverrides(overrides) {
+function validateOverrides(type, overrides) {
   if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) {
     throw new Error("overrides must be a JSON object.");
   }
@@ -85,6 +104,9 @@ function validateOverrides(overrides) {
     throw new Error("date must be YYYYMMDD.");
   }
   if (overrides.poNumber !== undefined) {
+    if (!["850", "810"].includes(type)) {
+      throw new Error(`poNumber does not apply to the ${type} synthetic fixture; it is supported only for 850 and 810.`);
+    }
     if (typeof overrides.poNumber !== "string" || overrides.poNumber.trim() === "") {
       throw new Error("poNumber must be a non-empty string.");
     }

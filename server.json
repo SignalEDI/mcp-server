@@ -2,9 +2,9 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.SignalEDI/mcp-server",
   "title": "SignalEDI",
-  "description": "EDI parse, validate, send, inspect, and QuickBooks tools for MCP clients.",
-  "version": "0.4.0",
-  "websiteUrl": "https://signaledi.com/developers#mcp",
+  "description": "X12 docs, synthetic fixtures, governed API tools. MCP host/model data policies still apply.",
+  "version": "0.5.0",
+  "websiteUrl": "https://signaledi.com/developers/pricing#mcp",
   "repository": {
     "url": "https://github.com/SignalEDI/mcp-server",
     "source": "github"
@@ -14,23 +14,46 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@signaledi/mcp-server",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "SIGNALEDI_API_KEY",
-          "description": "Workspace API key with the platform scope. Optional for demo mode; create one at https://signaledi.com/console/keys for send, transactions, and QuickBooks tools.",
+          "description": "Least-privilege workspace API key. Ignored by docs; authenticated profiles require base platform plus each tool's published domain scopes. Deprecated umbrella-only write/production credentials do not satisfy domain-scoped operations and must be replaced.",
           "isRequired": false,
           "isSecret": true
         },
         {
           "name": "SIGNALEDI_BASE_URL",
-          "description": "Override the API base URL. Defaults to https://signaledi.com; point at a preview deployment or custom domain when needed.",
+          "description": "Explicit origin-only API base URL. Sandbox requires a verified non-production URL; production requires exactly https://signaledi.com.",
           "isRequired": false,
-          "isSecret": false,
-          "default": "https://signaledi.com"
+          "isSecret": false
+        },
+        {
+          "name": "SIGNALEDI_MCP_PROFILE",
+          "description": "Capability profile: docs, sandbox, or production. Always defaults to keyless docs; a key alone never enables remote tools.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL",
+          "description": "Set to 1 only after verifying a custom API host. Required for localhost, preview, and sandbox URLs.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SIGNALEDI_MCP_ALLOW_PRODUCTION",
+          "description": "Explicit production opt-in. Set to 1 only with SIGNALEDI_MCP_PROFILE=production, the canonical production base, and a production-authorized API key.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SIGNALEDI_MCP_TELEMETRY",
+          "description": "Controls redacted local stderr metrics. Enabled by default; set to 0 to disable. Raw EDI, payloads, API keys, and idempotency keys are never emitted.",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }

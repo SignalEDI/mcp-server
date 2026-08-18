@@ -5,114 +5,247 @@
 // these on the MCP Server; `test.mjs` exercises the handlers against a mock
 // client. Contracts mirror the tested @signaledi/sdk and docs/openapi/v1.
 
-import { appendDemoFooter, demoModeToolError, KEYED_ONLY_TOOLS } from "./demo.mjs";
+import { appendDemoFooter, isToolAvailableInProfile, profileToolError } from "./demo.mjs";
+import {
+  generateIntegrationExample,
+  LOCAL_EXAMPLE_DOCUMENT_TYPES,
+  OUTBOUND_EXAMPLE_DOCUMENT_TYPES,
+} from "./codegen.mjs";
+import { MCP_EDI_CONTENT_MAX_BYTES } from "./client.mjs";
+import {
+  CONNECTION_CREATE_OUTPUT_SCHEMA,
+  CONNECTION_DIRECTIONS,
+  CONNECTION_ENVIRONMENTS,
+  CONNECTION_GET_OUTPUT_SCHEMA,
+  CONNECTION_LIFECYCLES,
+  CONNECTION_LIST_OUTPUT_SCHEMA,
+  CONNECTION_MUTATION_OUTPUT_SCHEMA,
+  CONNECTION_TEST_OUTPUT_SCHEMA,
+  CONNECTION_TRANSPORTS,
+  projectConnectionCreateResponse,
+  projectConnectionListResponse,
+  projectConnectionTestResponse,
+  projectConnectionWorkspaceResponse,
+} from "./connections.mjs";
+import { searchDeveloperDocs } from "./developer-docs.mjs";
+import { getDocumentSchema } from "./document-schemas.mjs";
 import { explainEdiError, lookupX12 } from "./x12-dictionary.mjs";
 import { renderTestDocument } from "./templates.mjs";
+import {
+  QBO_EXPORT_OUTPUT_SCHEMA,
+  QBO_STATUS_OUTPUT_SCHEMA,
+  projectQuickBooksExportResponse,
+  projectQuickBooksStatusResponse,
+} from "./quickbooks.mjs";
 import { errorResult, ok, requestId, validateMutationArgs } from "./protocol.mjs";
+import { ToolInputError, validateToolArguments } from "./schema-validation.mjs";
 
 /** @typedef {import("./client.mjs").SignalEDIClient} SignalEDIClient */
 
-/** Minimal required-string check; richer validation is the API's job. */
+const SUPPORTED_OUTBOUND_DOCUMENT_TYPES = Object.freeze([
+  "850", "810", "855", "856",
+  "204", "210", "211", "212", "214", "753", "754", "858",
+  "940", "943", "944", "945", "947", "990",
+]);
+
+function requestMeta(context) {
+  return context?.requestId ? { "com.signaledi/requestId": context.requestId } : {};
+}
+
+function environmentForProfile(profile) {
+  return profile === "production" ? "PRODUCTION" : "SANDBOX";
+}
+
+const X12_QUALIFIER_PATTERN = "^(?:0[0-9]|1[0-6]|20|30|ZZ)$";
+const X12_CONNECTION_ID_PATTERN = "^(?!.*[*~>^])(?=.*[\\x21-\\x7E])[\\x20-\\x7E]{1,15}$";
+
+function normalizedX12Envelope(envelope) {
+  return Object.fromEntries(
+    Object.entries(envelope).map(([key, value]) => [key, value.trim()]),
+  );
+}
+
+/** Schema validation runs first; this preserves concise handler-level errors. */
 function requireString(args, key) {
   const v = args?.[key];
   if (typeof v !== "string" || v.trim() === "") {
-    throw new Error(`"${key}" is required and must be a non-empty string.`);
+    throw invalidArguments(`"${key}" is required and must be a non-empty string.`, [`$.${key} must be a non-empty string`]);
   }
   return v;
 }
 
-/** @type {Array<{ name: string, description: string, inputSchema: object, handler: (c: SignalEDIClient, args: any) => Promise<object> }>} */
+function invalidArguments(message, details = []) {
+  return new ToolInputError(`Invalid tool arguments: ${message}`, details);
+}
+
+/** @type {Array<{ name: string, description: string, inputSchema: object, outputSchema?: object, localOnly?: boolean, remoteSideEffect?: boolean, mutation?: boolean, idempotent?: boolean, productionSafe?: boolean, requiredScopes?: string[], productionScopes?: string[], conditionalScopes?: Array<{ when: string, scopes: string[] }>, handler: (c: SignalEDIClient, args: any, context?: { requestId?: string }) => Promise<object> }>} */
 export const TOOLS = [
   {
     name: "parse_edi",
+    remoteSideEffect: true,
+    requiredScopes: ["platform"],
     description:
-      "Parse a raw X12 EDI interchange (e.g. an 850 purchase order, 810 invoice, or 856 ASN) into structured JSON plus a validation summary. Pass the full raw EDI text including the ISA/GS envelope.",
+      "Upload a raw X12 EDI interchange to the configured non-production SignalEDI API and parse it into structured JSON plus a validation summary. This can record sandbox usage and is never automatically retried. Pass only synthetic or approved test data, including the ISA/GS envelope.",
     inputSchema: {
       type: "object",
       properties: {
         content: {
           type: "string",
-          description: "The full raw EDI document text (ISA├óΓé¼┬ªIEA).",
+          maxLength: MCP_EDI_CONTENT_MAX_BYTES,
+          description: `The full raw EDI document text (ISA through IEA), capped at ${MCP_EDI_CONTENT_MAX_BYTES} UTF-8 bytes.`,
         },
       },
       required: ["content"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const content = requireString(args, "content");
-      return ok(await client.parse(content));
+      return ok(await client.parse(content, context), requestMeta(context));
     },
   },
   {
     name: "validate_edi",
+    remoteSideEffect: true,
+    requiredScopes: ["platform"],
     description:
-      "Validate a raw EDI interchange against X12 structural rules. Returns a validation summary (valid flag, errors, transaction set, control number, segment count) without the full parsed JSON.",
+      "Upload a raw X12 EDI interchange to the configured non-production SignalEDI API for structural validation. This can record sandbox usage and is never automatically retried. Returns a validation summary without the full parsed JSON; pass only synthetic or approved test data.",
     inputSchema: {
       type: "object",
       properties: {
         content: {
           type: "string",
-          description: "The full raw EDI document text to validate.",
+          maxLength: MCP_EDI_CONTENT_MAX_BYTES,
+          description: `The full raw EDI document text to validate, capped at ${MCP_EDI_CONTENT_MAX_BYTES} UTF-8 bytes.`,
         },
       },
       required: ["content"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const content = requireString(args, "content");
-      return ok(await client.validate(content));
+      return ok(await client.validate(content, context), requestMeta(context));
     },
+  },
+  {
+    name: "search_docs",
+    localOnly: true,
+    description:
+      "Search the bundled public SignalEDI developer index. Returns authoritative MCP resource URIs and short snippets; it does not search customer data or private partner guides.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 200, description: "Developer question or keywords." },
+        limit: { type: "integer", minimum: 1, maximum: 10, description: "Maximum matches (default 5)." },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    handler: async (_client, args) => ok({
+      query: requireString(args, "query"),
+      results: searchDeveloperDocs(args.query, args.limit || 5),
+      scope: "bundled-public-developer-index",
+    }),
+  },
+  {
+    name: "get_document_schema",
+    localOnly: true,
+    description:
+      "Get a public X12 starter schema for 850, 810, 856, or 837 Professional (005010X222A1): baseline envelope, common segments, and key fields. This is explicitly not a trading-partner implementation guide.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionSet: { type: "string", enum: ["850", "810", "856", "837"], description: "X12 transaction set code. The 837 starter is Professional 005010X222A1 only." },
+      },
+      required: ["transactionSet"],
+      additionalProperties: false,
+    },
+    handler: async (_client, args) => ok(getDocumentSchema(args.transactionSet)),
+  },
+  {
+    name: "generate_integration_example",
+    localOnly: true,
+    description:
+      "Generate a sandbox-safe cURL, Node.js, or Python example for the current SignalEDI REST contract. Uses environment-variable placeholders and synthetic values, sets outbound environment to SANDBOX, refuses production hosts, and never embeds credentials.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        language: { type: "string", enum: ["curl", "node", "python"] },
+        operation: { type: "string", enum: ["parse", "validate", "send_outbound"] },
+        documentType: { type: "string", enum: [...LOCAL_EXAMPLE_DOCUMENT_TYPES], description: "Fixture type. Outbound examples support 850, 810, and 856; 837 is parse/validate only." },
+      },
+      required: ["language", "operation"],
+      additionalProperties: false,
+      oneOf: [
+        {
+          properties: {
+            operation: { type: "string", enum: ["parse", "validate"] },
+            documentType: { type: "string", enum: [...LOCAL_EXAMPLE_DOCUMENT_TYPES] },
+          },
+        },
+        {
+          properties: {
+            operation: { type: "string", const: "send_outbound" },
+            documentType: { type: "string", enum: [...OUTBOUND_EXAMPLE_DOCUMENT_TYPES] },
+          },
+        },
+      ],
+    },
+    handler: async (_client, args) => ok(generateIntegrationExample(args)),
   },
   {
     name: "send_outbound_document",
     mutation: true,
-    requiredScopes: ["edi:write"],
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:documents:read", "platform:documents:send"],
+    productionScopes: ["platform:documents:production"],
     description:
-      "Send an outbound EDI document to a trading partner. SignalEDI serializes the JSON payload into valid EDI and delivers it; the call returns a document id and status and is acknowledged asynchronously via webhook.",
+      "Send an outbound EDI document through the active partner connection in the selected MCP environment. SignalEDI validates immutable production readiness, serializes the JSON payload into EDI, and returns a queued document id plus replay status.",
     inputSchema: {
       type: "object",
       properties: {
-        partnerId: { type: "string", description: "Trading partner id to send to." },
+        partnerId: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Trading partner id to send to." },
         documentTypeCode: {
           type: "string",
+          enum: [...SUPPORTED_OUTBOUND_DOCUMENT_TYPES],
           description: "Document type code, e.g. \"850\", \"810\", \"856\".",
         },
         payload: {
           type: "object",
           description: "The document body as JSON; serialized to EDI by SignalEDI.",
+          minProperties: 1,
           additionalProperties: true,
         },
         workspaceId: {
           type: "string",
           description: "Optional workspace id (defaults to the API key's workspace).",
         },
-        metadata: {
-          type: "object",
-          description: "Optional metadata echoed back on lifecycle webhooks.",
-          additionalProperties: true,
-        },
-        confirm: { type: "boolean", const: true, description: "Explicitly confirm this external send." },
-        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved this external send." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key, without edge whitespace, for durable API-side duplicate detection. MCP does not retry mutations." },
       },
       required: ["partnerId", "documentTypeCode", "payload", "confirm", "idempotencyKey"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const partnerId = requireString(args, "partnerId");
       const documentTypeCode = requireString(args, "documentTypeCode");
       if (typeof args?.payload !== "object" || args.payload === null || Array.isArray(args.payload)) {
-        throw new Error('"payload" is required and must be a JSON object.');
+        throw invalidArguments('"payload" is required and must be a JSON object.', ["$.payload must be an object"]);
       }
       const { confirm: _confirm, idempotencyKey, ...input } = args;
       return ok(
         await client.sendOutbound({
           ...input,
-        }, { idempotencyKey, requestId: requestId() }),
+          environment: environmentForProfile(client.profile),
+        }, { idempotencyKey: idempotencyKey.trim(), requestId: context?.requestId }),
+        requestMeta(context),
       );
     },
   },
   {
     name: "list_transactions",
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:documents:read"],
     description:
       "List your recent EDI transactions (newest first), scoped to the API key. Each row includes the transaction set, direction, status, partner, and SLA flag.",
     inputSchema: {
@@ -122,158 +255,471 @@ export const TOOLS = [
           type: "integer",
           minimum: 1,
           maximum: 100,
-          description: "Max rows to return (1├óΓé¼ΓÇ£100; the server caps at 100).",
+          description: "Max rows to return (1-100; the server caps at 100).",
         },
       },
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const limit = args?.limit;
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-        throw new Error('"limit" must be a positive integer.');
+        throw invalidArguments('"limit" must be a positive integer.', ["$.limit must be a positive integer"]);
       }
-      return ok(await client.listTransactions(limit ? { limit } : {}));
+      return ok(await client.listTransactions(limit ? { limit } : {}, context), requestMeta(context));
     },
   },
   {
     name: "get_transaction",
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:documents:read"],
     description:
       "Fetch a single EDI transaction you own by id, with its full lifecycle status (created/processed timestamps, partner, error message, SLA).",
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "The transaction id." },
+        id: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "The transaction id." },
       },
       required: ["id"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const id = requireString(args, "id");
-      return ok(await client.getTransaction(id));
+      return ok(await client.getTransaction(id, context), requestMeta(context));
+    },
+  },
+  {
+    name: "list_connections",
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:connections:read"],
+    description:
+      "List tenant-scoped partner connection summaries and cursor state. Results are projected onto a secret-free allowlist: status booleans and opaque gateway/evidence references may be returned, but credentials, keys, certificates, tokens, and raw transport configuration are never returned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        partnerId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Optional trading partner id filter." },
+        lifecycle: { type: "string", enum: [...CONNECTION_LIFECYCLES], description: "Optional governed lifecycle filter." },
+        cursor: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Opaque nextCursor from the preceding page." },
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "Page size (default 25; maximum 100)." },
+      },
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => ok(
+      projectConnectionListResponse(await client.listConnections(args || {}, context)),
+      requestMeta(context),
+    ),
+  },
+  {
+    name: "get_connection",
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:connections:read"],
+    description:
+      "Inspect one sanitized partner connection workspace: environments, safe gateway references, evidence status, test coverage, readiness blockers, and next actions. Stored credentials, private keys, tokens, certificates, and raw transport configuration are never returned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Tenant-scoped partner connection id." },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => ok(
+      projectConnectionWorkspaceResponse(await client.getConnection(requireString(args, "connectionId"), context)),
+      requestMeta(context),
+    ),
+  },
+  {
+    name: "create_connection_draft",
+    mutation: true,
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:connections:read", "platform:connections:write"],
+    description:
+      "Create or idempotently recover the matching sandbox-first partner connection in DRAFT, reporting created=true only for a new row. This operation cannot create an active production environment or activate delivery; it accepts only partner identity, AS2/SFTP transport choice, direction, and an optional display name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        partnerId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Existing tenant-visible trading partner id." },
+        displayName: { type: "string", minLength: 1, maxLength: 160, pattern: "\\S", description: "Optional human-readable connection name." },
+        transportMethod: { type: "string", enum: [...CONNECTION_TRANSPORTS], description: "Governed transport; only AS2 and SFTP drafts are supported." },
+        direction: { type: "string", enum: [...CONNECTION_DIRECTIONS], description: "Document flow direction (defaults server-side when omitted)." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved creating this draft." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key without edge whitespace for API-side replay protection." },
+      },
+      required: ["partnerId", "transportMethod", "confirm", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => {
+      const { confirm: _confirm, idempotencyKey, ...input } = args;
+      return ok(
+        projectConnectionCreateResponse(await client.createConnectionDraft(input, {
+          idempotencyKey: idempotencyKey.trim(),
+          requestId: context?.requestId,
+        })),
+        requestMeta(context),
+      );
+    },
+  },
+  {
+    name: "configure_connection",
+    mutation: true,
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:connections:read", "platform:connections:write"],
+    productionScopes: ["platform:connections:production"],
+    description:
+      "Configure a SANDBOX or PRODUCTION AS2/SFTP connection environment using only an existing gateway reference and X12 ISA/GS identifiers. Legacy API connections are readable but are configured in the governed API-connections surface. SignalEDI owns ISA15 (T for sandbox, P for production), resolves the gateway server-side, and accepts no credentials, secrets, private keys, tokens, certificates, or raw transport configuration. PRODUCTION configuration additionally requires platform:connections:production and does not activate delivery.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Tenant-scoped partner connection id." },
+        environment: { type: "string", enum: [...CONNECTION_ENVIRONMENTS], description: "Environment to configure; PRODUCTION requires the production API capability." },
+        gatewayId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Opaque reference to an existing compatible gateway; never gateway credentials or configuration." },
+        x12Envelope: {
+          type: "object",
+          properties: {
+            isaSenderQualifier: { type: "string", minLength: 2, maxLength: 2, pattern: X12_QUALIFIER_PATTERN, description: "Two-character product-supported X12 qualifier: 00-09, 10-16, 20, 30, or ZZ." },
+            isaSenderId: { type: "string", minLength: 1, maxLength: 15, pattern: X12_CONNECTION_ID_PATTERN },
+            isaReceiverQualifier: { type: "string", minLength: 2, maxLength: 2, pattern: X12_QUALIFIER_PATTERN, description: "Two-character product-supported X12 qualifier: 00-09, 10-16, 20, 30, or ZZ." },
+            isaReceiverId: { type: "string", minLength: 1, maxLength: 15, pattern: X12_CONNECTION_ID_PATTERN },
+            gsSenderId: { type: "string", minLength: 1, maxLength: 15, pattern: X12_CONNECTION_ID_PATTERN },
+            gsReceiverId: { type: "string", minLength: 1, maxLength: 15, pattern: X12_CONNECTION_ID_PATTERN },
+          },
+          required: ["isaSenderQualifier", "isaSenderId", "isaReceiverQualifier", "isaReceiverId", "gsSenderId", "gsReceiverId"],
+          additionalProperties: false,
+          description: "X12 identifiers only. ISA15 usageIndicator is intentionally absent and server-owned.",
+        },
+        requirementVersion: { type: "string", minLength: 1, maxLength: 100, pattern: "\\S", description: "Optional implementation-requirement version label; not a credential." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved this environment configuration." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key without edge whitespace for API-side replay protection." },
+      },
+      required: ["connectionId", "environment", "gatewayId", "x12Envelope", "confirm", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => {
+      const { connectionId, confirm: _confirm, idempotencyKey, ...configuration } = args;
+      const response = await client.configureConnection(connectionId, {
+        action: "configure_environment",
+        ...configuration,
+        gatewayId: configuration.gatewayId.trim(),
+        x12Envelope: normalizedX12Envelope(configuration.x12Envelope),
+        ...(configuration.requirementVersion === undefined
+          ? {}
+          : { requirementVersion: configuration.requirementVersion.trim() }),
+      }, {
+        idempotencyKey: idempotencyKey.trim(),
+        requestId: context?.requestId,
+      });
+      return ok(projectConnectionWorkspaceResponse(response, { mutation: true }), requestMeta(context));
+    },
+  },
+  {
+    name: "test_connection",
+    mutation: true,
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: [
+      "platform",
+      "platform:connections:read",
+      "platform:connections:write",
+    ],
+    productionScopes: ["platform:connections:production"],
+    description:
+      "Run one governed connectivity-test execution against the exact saved connection and the environment selected by the active MCP profile. This causes partner-network egress and records sanitized audit/evidence state, so confirm:true is only a caller assertion and the MCP host must enforce human review. Completed pass and fail results replay without another test execution. No endpoint, credential, certificate, private key, token, or raw connector error is accepted or returned; a production test never activates delivery.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Tenant-scoped partner connection id. The server resolves its saved transport and configuration." },
+        confirm: { type: "boolean", const: true, description: "Caller assertion that the host obtained human approval for this external connectivity test." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key without edge whitespace. MCP never retries this egress operation." },
+      },
+      required: ["connectionId", "confirm", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    outputSchema: CONNECTION_TEST_OUTPUT_SCHEMA,
+    handler: async (client, args, context) => {
+      const connectionId = requireString(args, "connectionId");
+      const environment = environmentForProfile(client.profile);
+      const response = await client.testConnection(
+        connectionId,
+        { environment },
+        {
+          idempotencyKey: args.idempotencyKey.trim(),
+          requestId: context?.requestId,
+        },
+      );
+      return ok(
+        projectConnectionTestResponse(response, { connectionId, environment }),
+        requestMeta(context),
+      );
+    },
+  },
+  {
+    name: "request_connection_go_live",
+    mutation: true,
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: [
+      "platform",
+      "platform:connections:read",
+      "platform:connections:write",
+      "platform:connections:production",
+    ],
+    description:
+      "Request the governed go-live handoff for a connection whose server-calculated readiness verdict is READY. This always requires platform:connections:production. The API can move only to GO_LIVE_APPROVED. This does not activate production; activation, rollback, isolation, and connectivity verification remain separate staff/evidence-controlled operations.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string", minLength: 1, maxLength: 128, pattern: "\\S", description: "Tenant-scoped partner connection id." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed readiness and approved requesting the go-live handoff." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key without edge whitespace for API-side replay protection." },
+      },
+      required: ["connectionId", "confirm", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => {
+      const response = await client.requestConnectionGoLive(requireString(args, "connectionId"), {
+        idempotencyKey: args.idempotencyKey.trim(),
+        requestId: context?.requestId,
+      });
+      return ok(projectConnectionWorkspaceResponse(response, { mutation: true }), requestMeta(context));
     },
   },
   {
     name: "quickbooks_status",
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:quickbooks:read"],
+    conditionalScopes: [
+      { when: "resolvedQuickBooksEnvironment=PRODUCTION", scopes: ["platform:quickbooks:production"] },
+    ],
     description:
-      "Get the QuickBooks Online connection status for your workspace ├óΓé¼ΓÇ¥ whether QBO is connected, the masked realm id, environment, and any last error. No tokens are returned.",
+      "Get the QuickBooks Online connection status for your workspace: whether QBO is connected, the masked realm id, environment, and safe error code. A strict allowlist prevents tokens or upstream additions from entering MCP results.",
     inputSchema: {
       type: "object",
       properties: {},
       additionalProperties: false,
     },
-    handler: async (client) => ok(await client.quickBooksStatus()),
+    handler: async (client, _args, context) => ok(
+      projectQuickBooksStatusResponse(await client.quickBooksStatus(context)),
+      requestMeta(context),
+    ),
   },
   {
     name: "quickbooks_sync_to_qbo",
     mutation: true,
-    requiredScopes: ["qbo:write"],
+    idempotent: true,
+    requiredScopes: ["platform", "platform:quickbooks:read", "platform:quickbooks:write"],
+    conditionalScopes: [
+      { when: "resolvedQuickBooksEnvironment=PRODUCTION", scopes: ["platform:quickbooks:production"] },
+    ],
     description:
-      "Push EDI transactions INTO QuickBooks Online (810├óΓÇáΓÇÖInvoice, 850├óΓÇáΓÇÖBill, 835├óΓÇáΓÇÖPayment). Provide exactly one of: transactionId (one), transactionIds (up to 50), or all:true (every eligible, not-yet-synced transaction). QBO creates are de-duplicated against prior successful syncs.",
+      "Push EDI transactions into QuickBooks Online. Buyer mode maps 810 to Invoice, 850 to Bill, and 835 to Payment; supplier mode maps 850 to Estimate and applies 856 shipment updates. Provide exactly one bounded selector. all:true processes one server-reported page and returns hasMore/nextCursor when another page remains.",
     inputSchema: {
       type: "object",
       properties: {
-        transactionId: { type: "string", description: "Sync a single EDI transaction by id." },
+        transactionId: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Sync a single EDI transaction by id." },
         transactionIds: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
           description: "Sync up to 50 specific EDI transaction ids.",
         },
-        all: { type: "boolean", description: "Sync all eligible, not-yet-synced transactions." },
-        confirm: { type: "boolean", const: true, description: "Explicitly confirm the QBO write." },
-        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
+        all: { type: "boolean", const: true, description: "Sync one bounded page of eligible, not-yet-synced transactions; inspect hasMore/nextCursor." },
+        direction: { type: "string", enum: ["buyer", "supplier"], description: "buyer (default) or supplier; supplier requires explicit transaction id(s)." },
+        cursor: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Opaque nextCursor from a prior all:true response. Valid only with all:true." },
+        limit: { type: "integer", minimum: 1, maximum: 50, description: "Page size for all:true (1-50). Valid only with all:true." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved the QBO write." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key, without edge whitespace, for durable API-side duplicate detection. MCP does not retry mutations." },
       },
+      required: ["confirm", "idempotencyKey"],
       additionalProperties: false,
+      oneOf: [
+        {
+          type: "object",
+          required: ["transactionId"],
+          not: { anyOf: [{ required: ["cursor"] }, { required: ["limit"] }] },
+        },
+        {
+          type: "object",
+          required: ["transactionIds"],
+          not: { anyOf: [{ required: ["cursor"] }, { required: ["limit"] }] },
+        },
+        {
+          type: "object",
+          required: ["all"],
+          properties: { direction: { type: "string", enum: ["buyer"] } },
+        },
+      ],
     },
-    handler: async (client, args) => {
-      const hasOne =
-        (typeof args?.transactionId === "string" && args.transactionId.trim() !== "") ||
-        (Array.isArray(args?.transactionIds) && args.transactionIds.length > 0) ||
-        args?.all === true;
-      if (!hasOne) {
-        throw new Error("Provide transactionId, transactionIds[], or all:true.");
+    handler: async (client, args, context) => {
+      const selectorCount = [
+        typeof args?.transactionId === "string" && args.transactionId.trim() !== "",
+        Array.isArray(args?.transactionIds) && args.transactionIds.length > 0,
+        args?.all === true,
+      ].filter(Boolean).length;
+      if (selectorCount !== 1) {
+        throw invalidArguments("Provide exactly one of transactionId, transactionIds[], or all:true.", ["$ must contain exactly one selector"]);
+      }
+      if (args?.all !== true && (args?.cursor !== undefined || args?.limit !== undefined)) {
+        throw invalidArguments("cursor and limit are valid only with all:true.", ["$.cursor and $.limit require $.all=true"]);
+      }
+      if (args?.all === true && args?.direction === "supplier") {
+        throw invalidArguments("direction:supplier requires transactionId or transactionIds[], not all:true.", ["$.direction cannot be supplier with $.all=true"]);
       }
       const { confirm: _confirm, idempotencyKey, ...input } = args;
-      return ok(await client.quickBooksSync(input, { idempotencyKey, requestId: requestId() }));
+      return ok(
+        await client.quickBooksSync(input, { idempotencyKey: idempotencyKey.trim(), requestId: context?.requestId }),
+        requestMeta(context),
+      );
     },
   },
   {
     name: "quickbooks_export_to_edi",
     mutation: true,
-    requiredScopes: ["qbo:write", "edi:write"],
+    idempotent: true,
+    productionSafe: true,
+    requiredScopes: ["platform", "platform:quickbooks:read"],
+    conditionalScopes: [
+      {
+        when: "dryRun=false",
+        scopes: ["platform:documents:read", "platform:documents:send"],
+      },
+      { when: "resolvedQuickBooksEnvironment=PRODUCTION", scopes: ["platform:quickbooks:production"] },
+      { when: "dryRun=false and MCP profile=production", scopes: ["platform:documents:production"] },
+      { when: "includePayload=true", scopes: ["platform:data:sensitive"] },
+    ],
     description:
-      "Pull QuickBooks entities and emit them as outbound EDI to a trading partner (Invoice├óΓÇáΓÇÖ810, PurchaseOrder├óΓÇáΓÇÖ850). Use dryRun:true to preview the mapped payloads without sending. partnerId is required unless dryRun.",
+      "Pull QuickBooks entities and map them to outbound EDI (Invoice to 810, PurchaseOrder to 850) in the selected MCP environment. dryRun returns a payload-redacted summary by default. Full mapped payloads require includePayload:true, platform:data:sensitive, and confirm:true as a caller assertion enforced by the host. Live export adds document read/send scopes—not QuickBooks write—and requires a verified active partner environment and immutable production readiness when production is selected.",
     inputSchema: {
       type: "object",
       properties: {
         entity: { type: "string", enum: ["Invoice", "PurchaseOrder"], description: "QBO entity to export." },
-        partnerId: { type: "string", description: "Trading partner id to send to (required unless dryRun)." },
-        ids: { type: "array", items: { type: "string" }, description: "Specific QBO ids; omit for most recent." },
-        since: { type: "string", description: "ISO date; only entities with TxnDate >= since." },
+        partnerId: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Trading partner id to send to (required unless dryRun)." },
+        ids: { type: "array", items: { type: "string", minLength: 1, maxLength: 200, pattern: "^\\d+$" }, minItems: 1, maxItems: 100, uniqueItems: true, description: "Specific numeric QBO ids; omit for most recent." },
+        since: { type: "string", format: "date", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "Real ISO calendar date; only entities with TxnDate >= since." },
         maxRows: { type: "integer", minimum: 1, maximum: 100, description: "Cap rows (default/cap 100)." },
-        dryRun: { type: "boolean", description: "Map only ├óΓé¼ΓÇ¥ return payloads without creating documents." },
-        confirm: { type: "boolean", const: true, description: "Explicitly confirm sending the mapped documents." },
-        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
+        dryRun: { type: "boolean", description: "Map only without creating documents. Results omit mapped business payloads by default." },
+        includePayload: { type: "boolean", description: "Dry-run only. Explicitly include mapped business payloads in the MCP/model context; requires platform:data:sensitive and confirm:true under host policy." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved sending the mapped documents." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key, without edge whitespace, for durable API-side duplicate detection. MCP does not retry mutations." },
       },
       required: ["entity"],
       additionalProperties: false,
+      oneOf: [
+        {
+          type: "object",
+          required: ["dryRun"],
+          properties: {
+            dryRun: { type: "boolean", const: true },
+            includePayload: { type: "boolean", const: false },
+          },
+        },
+        {
+          type: "object",
+          required: ["dryRun", "includePayload", "confirm"],
+          properties: {
+            dryRun: { type: "boolean", const: true },
+            includePayload: { type: "boolean", const: true },
+            confirm: { type: "boolean", const: true },
+          },
+        },
+        {
+          type: "object",
+          required: ["partnerId", "confirm", "idempotencyKey"],
+          properties: { dryRun: { type: "boolean", const: false } },
+          not: { type: "object", required: ["includePayload"] },
+        },
+      ],
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const entity = requireString(args, "entity");
       if (entity !== "Invoice" && entity !== "PurchaseOrder") {
-        throw new Error('"entity" must be "Invoice" or "PurchaseOrder".');
+        throw invalidArguments('"entity" must be "Invoice" or "PurchaseOrder".', ["$.entity is unsupported"]);
       }
       if (args?.dryRun !== true && (typeof args?.partnerId !== "string" || args.partnerId.trim() === "")) {
-        throw new Error('"partnerId" is required unless dryRun is true.');
+        throw invalidArguments('"partnerId" is required unless dryRun is true.', ["$.partnerId is required for live export"]);
       }
       if (args?.dryRun === true) {
         const { confirm: _confirm, idempotencyKey: _idempotencyKey, ...input } = args;
-        return ok(await client.quickBooksExport(input));
+        const includePayload = input.includePayload === true;
+        const response = await client.quickBooksExport(
+          { ...input, includePayload, environment: environmentForProfile(client.profile) },
+          { requestId: context?.requestId },
+        );
+        return ok(
+          projectQuickBooksExportResponse(response, { expectedDryRun: true, includePayload }),
+          requestMeta(context),
+        );
       }
       const { confirm: _confirm, idempotencyKey, ...input } = args;
-      return ok(await client.quickBooksExport(input, { idempotencyKey, requestId: requestId() }));
+      const response = await client.quickBooksExport(
+        { ...input, environment: environmentForProfile(client.profile) },
+        { idempotencyKey: idempotencyKey.trim(), requestId: context?.requestId },
+      );
+      return ok(
+        projectQuickBooksExportResponse(response, { expectedDryRun: false }),
+        requestMeta(context),
+      );
     },
   },
   {
     name: "quickbooks_list_entities",
+    requiredScopes: ["platform", "platform:quickbooks:read", "platform:data:sensitive"],
+    conditionalScopes: [
+      { when: "resolvedQuickBooksEnvironment=PRODUCTION", scopes: ["platform:quickbooks:production"] },
+    ],
     description:
-      "List QuickBooks entities for preview/mapping: Invoice, PurchaseOrder, Customer, Vendor, or Item. Returns the QBO rows as-is (no tokens).",
+      "List QuickBooks entities for preview/mapping: Invoice, Estimate, PurchaseOrder, Customer, Vendor, or Item. Returns the QBO rows as-is (no tokens).",
     inputSchema: {
       type: "object",
       properties: {
         entity: {
           type: "string",
-          enum: ["Invoice", "PurchaseOrder", "Customer", "Vendor", "Item"],
+          enum: ["Invoice", "Estimate", "PurchaseOrder", "Customer", "Vendor", "Item"],
           description: "Which QBO entity to list.",
         },
-        limit: { type: "integer", minimum: 1, maximum: 100, description: "Max rows (1├óΓé¼ΓÇ£100; default 25)." },
+        limit: { type: "integer", minimum: 1, maximum: 100, description: "Max rows (1-100; default 25)." },
       },
       required: ["entity"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const entity = requireString(args, "entity");
-      return ok(await client.quickBooksListEntities(entity, args?.limit ? { limit: args.limit } : {}));
+      return ok(
+        await client.quickBooksListEntities(entity, args?.limit ? { limit: args.limit } : {}, context),
+        requestMeta(context),
+      );
     },
   },
   {
     name: "quickbooks_disconnect",
     mutation: true,
-    requiredScopes: ["qbo:write"],
+    idempotent: true,
+    requiredScopes: ["platform", "platform:quickbooks:read", "platform:quickbooks:write"],
+    conditionalScopes: [
+      { when: "resolvedQuickBooksEnvironment=PRODUCTION", scopes: ["platform:quickbooks:production"] },
+    ],
     description:
-      "Disconnect QuickBooks Online for your workspace ├óΓé¼ΓÇ¥ revokes the OAuth grant at Intuit and removes the connection. Irreversible without reconnecting.",
+      "Disconnect QuickBooks Online for your workspace. The API durably deduplicates retries, removes the local connection, and reports whether Intuit revocation completed or remains pending. Reconnecting is required to restore access.",
     inputSchema: {
       type: "object",
       properties: {
-        confirm: { type: "boolean", const: true, description: "Explicitly confirm disconnecting QBO." },
-        idempotencyKey: { type: "string", minLength: 8, description: "Unique key for safe retries." },
+        confirm: { type: "boolean", const: true, description: "Assert that a human reviewed and approved disconnecting QBO." },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 128, pattern: "^[\\x21-\\x7E](?:[\\x20-\\x7E]*[\\x21-\\x7E])?$", description: "Caller-generated 8-128 printable ASCII key without edge whitespace for durable API-side duplicate detection. MCP does not retry mutations." },
       },
       required: ["confirm", "idempotencyKey"],
       additionalProperties: false,
     },
-    handler: async (client, args) => ok(await client.quickBooksDisconnect({ idempotencyKey: args.idempotencyKey, requestId: requestId() })),
+    handler: async (client, args, context) => ok(
+      await client.quickBooksDisconnect({ idempotencyKey: args.idempotencyKey.trim(), requestId: context?.requestId }),
+      requestMeta(context),
+    ),
   },
   {
     name: "list_partner_kits",
+    productionSafe: true,
+    requiredScopes: ["platform"],
     description:
       "List packaged SignalEDI API kits (retail, healthcare, quickstart) from GET /api/v1/kits. Requires a platform-scoped API key.",
     inputSchema: {
@@ -281,33 +727,66 @@ export const TOOLS = [
       properties: {},
       additionalProperties: false,
     },
-    handler: async (client) => ok(await client.listPartnerKits()),
+    handler: async (client, _args, context) => ok(await client.listPartnerKits(context), requestMeta(context)),
   },
   {
     name: "get_partner_kit",
+    productionSafe: true,
+    requiredScopes: ["platform"],
     description:
       "Fetch one API kit by kitId from the /api/v1/kits catalog (structured endpoints, webhook events, sample payloads). Requires a platform API key.",
     inputSchema: {
       type: "object",
       properties: {
-        kitId: { type: "string", description: "Catalog kit id, e.g. retail_order_lifecycle." },
+        kitId: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Catalog kit id, e.g. retail_order_lifecycle." },
         partnerId: {
           type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "\\S",
           description: "Alias for kitId when your workflow names the kit as a partner preset id.",
         },
       },
       additionalProperties: false,
+      anyOf: [{ type: "object", required: ["kitId"] }, { type: "object", required: ["partnerId"] }],
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const kitId = (args?.kitId || args?.partnerId || "").trim();
-      if (!kitId) throw new Error('Provide kitId (or partnerId alias).');
-      return ok(await client.getPartnerKit(kitId));
+      if (!kitId) throw invalidArguments("Provide kitId (or partnerId alias).", ["$.kitId or $.partnerId is required"]);
+      return ok(await client.getPartnerKit(kitId, context), requestMeta(context));
+    },
+  },
+  {
+    name: "get_partner_requirements",
+    productionSafe: true,
+    requiredScopes: ["platform"],
+    description:
+      "Retrieve a generic SignalEDI API kit as a requirements starting point. The result is labeled generic and must not be represented as a trading partner's current implementation guide.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kitId: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "SignalEDI kit catalog id, e.g. retail_order_lifecycle." },
+        partnerName: { type: "string", minLength: 1, maxLength: 120, description: "Optional display label for the gap report; it does not select private partner rules." },
+      },
+      required: ["kitId"],
+      additionalProperties: false,
+    },
+    handler: async (client, args, context) => {
+      const result = await client.getPartnerKit(requireString(args, "kitId"), context);
+      return ok({
+        partnerName: args.partnerName,
+        partnerSpecific: false,
+        requirementsStatus: "generic-kit-only",
+        warning: "Obtain and validate against the trading partner's current implementation guide before production use.",
+        ...result,
+      }, requestMeta(context));
     },
   },
   {
     name: "explain_edi_error",
+    localOnly: true,
     description:
-      "Explain an EDI validation or functional-ack error using the local X12 dictionary (meaning, typical cause, fix, lookup_x12 cross-refs). Never calls the network; works in demo mode.",
+      "Explain an EDI validation or functional-ack error using the local X12 dictionary (meaning, typical cause, fix, lookup_x12 cross-refs). Never calls the network; works in the docs profile.",
     inputSchema: {
       type: "object",
       properties: {
@@ -321,18 +800,19 @@ export const TOOLS = [
   },
   {
     name: "generate_test_document",
+    localOnly: true,
     description:
-      "Render a synthetic X12 sample for 850, 810, 856, or 837 with optional control number, PO, and date overrides. Local only; works in demo mode.",
+      "Render a synthetic X12 sample for 850, 810, 856, or 837 Professional (005010X222A1). controlNumber and the transaction's primary date apply to every fixture; poNumber applies only to 850 and 810. Local only; works in the docs profile.",
     inputSchema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["850", "810", "856", "837"], description: "Transaction set to generate." },
+        type: { type: "string", enum: ["850", "810", "856", "837"], description: "Transaction set to generate. 837 means Professional 005010X222A1 only." },
         overrides: {
           type: "object",
           properties: {
-            controlNumber: { type: "string" },
-            poNumber: { type: "string" },
-            date: { type: "string", description: "YYYYMMDD" },
+            controlNumber: { type: "string", minLength: 9, maxLength: 9, pattern: "^\\d{9}$" },
+            poNumber: { type: "string", minLength: 1, maxLength: 40, description: "Purchase-order reference for 850 and 810 only." },
+            date: { type: "string", pattern: "^\\d{8}$", description: "YYYYMMDD primary transaction date: PO date (850), invoice date (810), shipment date (856), or claim creation/service date (837 Professional)." },
           },
           additionalProperties: false,
         },
@@ -343,7 +823,7 @@ export const TOOLS = [
     handler: async (_client, args) => {
       const type = requireString(args, "type");
       if (!["850", "810", "856", "837"].includes(type)) {
-        throw new Error('type must be one of "850", "810", "856", "837".');
+        throw invalidArguments('type must be one of "850", "810", "856", "837".', ["$.type is unsupported"]);
       }
       const content = renderTestDocument(type, args?.overrides || {});
       return ok({ type, content });
@@ -351,8 +831,9 @@ export const TOOLS = [
   },
   {
     name: "lookup_x12",
+    localOnly: true,
     description:
-      "Search the local X12 dictionary by segment id, ack code, or free text (segment names and purposes). Local only; works in demo mode.",
+      "Search the local X12 dictionary by segment id, ack code, or free text (segment names and purposes). Local only; works in the docs profile.",
     inputSchema: {
       type: "object",
       properties: {
@@ -367,62 +848,390 @@ export const TOOLS = [
   // spec-facing names for Cursor/Claude Desktop tool discovery.
   {
     name: "validate_x12_structure",
+    remoteSideEffect: true,
+    requiredScopes: ["platform"],
     description:
-      "Alias for validate_edi — validate a raw X12 interchange structure and return a validation summary.",
+      "Alias for validate_edi — upload approved test data to the configured non-production API, validate its X12 structure, and return a summary. This can record sandbox usage and is never automatically retried.",
     inputSchema: {
       type: "object",
       properties: {
-        content: { type: "string", description: "Full raw EDI document text." },
+        content: { type: "string", maxLength: MCP_EDI_CONTENT_MAX_BYTES, description: `Full raw EDI document text, capped at ${MCP_EDI_CONTENT_MAX_BYTES} UTF-8 bytes.` },
       },
       required: ["content"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const content = requireString(args, "content");
-      return ok(await client.validate(content));
+      return ok(await client.validate(content, context), requestMeta(context));
     },
   },
   {
     name: "parse_segments",
+    remoteSideEffect: true,
+    requiredScopes: ["platform"],
     description:
-      "Alias for parse_edi — parse raw X12 into structured JSON plus validation summary.",
+      "Alias for parse_edi — upload approved test data to the configured non-production API and parse raw X12 into structured JSON plus a validation summary. This can record sandbox usage and is never automatically retried.",
     inputSchema: {
       type: "object",
       properties: {
-        content: { type: "string", description: "Full raw EDI document text." },
+        content: { type: "string", maxLength: MCP_EDI_CONTENT_MAX_BYTES, description: `Full raw EDI document text, capped at ${MCP_EDI_CONTENT_MAX_BYTES} UTF-8 bytes.` },
       },
       required: ["content"],
       additionalProperties: false,
     },
-    handler: async (client, args) => {
+    handler: async (client, args, context) => {
       const content = requireString(args, "content");
-      return ok(await client.parse(content));
+      return ok(await client.parse(content, context), requestMeta(context));
     },
   },
   {
     name: "lookup_element_definition",
+    localOnly: true,
     description:
       "Alias for lookup_x12 — search segment maps and ack codes (850/810/856/837 dictionaries).",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Segment id, element keyword, or ack code." },
-        element: { type: "string", description: "Alias for query when prompting by element name." },
+        query: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Segment id, element keyword, or ack code." },
+        element: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "Alias for query when prompting by element name." },
       },
       additionalProperties: false,
+      anyOf: [{ type: "object", required: ["query"] }, { type: "object", required: ["element"] }],
     },
     handler: async (_client, args) => {
       const query = (args?.query || args?.element || "").trim();
-      if (!query) throw new Error('Provide query or element.');
+      if (!query) throw invalidArguments("Provide query or element.", ["$.query or $.element is required"]);
       return ok(lookupX12(query));
     },
   },
 
 ];
 
+const SAFE_REMOTE_ERROR_CODES = new Set([
+  "BAD_REQUEST",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "CONFLICT",
+  "RATE_LIMITED",
+  "UPSTREAM_TIMEOUT",
+  "UPSTREAM_UNAVAILABLE",
+  "UPSTREAM_REQUEST_FAILED",
+  "INVALID_API_RESPONSE",
+  "CONNECTIVITY_FAILED",
+  "CONNECTION_ERROR",
+  "REAUTH_REQUIRED",
+]);
+
+function safeRemoteErrorCode(value) {
+  return typeof value === "string" && SAFE_REMOTE_ERROR_CODES.has(value)
+    ? value
+    : "TOOL_FAILED";
+}
+
+function safeRemoteIdentifier(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+const STRING_OR_NULL = { anyOf: [{ type: "string" }, { type: "null" }] };
+const OBJECT_OR_NULL = { anyOf: [{ type: "object", additionalProperties: true }, { type: "null" }] };
+const VALIDATION_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: {
+    sourceFormat: { type: "string", enum: ["X12", "EDIFACT"] },
+    valid: { type: "boolean" },
+    errors: { type: "array", items: { type: "string" } },
+    issues: { type: "array", items: { type: "object", additionalProperties: true } },
+    transactionSet: { type: "string" },
+    recognized: { type: "boolean" },
+    semanticValidation: { type: "string", enum: ["supported", "unsupported", "unknown"] },
+    transactionSets: { type: "array", items: { type: "object", additionalProperties: true } },
+    controlNumber: { type: "string" },
+    segmentCount: { type: "integer" },
+  },
+  required: ["sourceFormat", "valid", "errors", "transactionSet", "recognized", "semanticValidation", "transactionSets", "controlNumber", "segmentCount"],
+  additionalProperties: true,
+};
+const PARSE_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean", const: true },
+    validation: VALIDATION_SUMMARY_SCHEMA,
+    json: OBJECT_OR_NULL,
+    envelope: {
+      type: "object",
+      properties: {
+        sender: { type: "string" },
+        receiver: { type: "string" },
+        date: { type: "string" },
+        controlReference: { type: "string" },
+      },
+      required: ["sender", "receiver", "date"],
+      additionalProperties: true,
+    },
+  },
+  required: ["ok", "validation", "json", "envelope"],
+  additionalProperties: true,
+};
+const VALIDATE_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: { ok: { type: "boolean", const: true }, validation: VALIDATION_SUMMARY_SCHEMA },
+  required: ["ok", "validation"],
+  additionalProperties: true,
+};
+const TRANSACTION_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    transactionSet: { type: "string" },
+    direction: { type: "string" },
+    status: { type: "string" },
+    partner: STRING_OR_NULL,
+    errorMessage: STRING_OR_NULL,
+    slaMet: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+    createdAt: { type: "string" },
+    processedAt: STRING_OR_NULL,
+  },
+  required: ["id", "transactionSet", "direction", "status", "partner", "errorMessage", "slaMet", "createdAt", "processedAt"],
+  additionalProperties: true,
+};
+const KIT_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    vertical: { type: "string" },
+    name: { type: "string" },
+    description: { type: "string" },
+    endpoints: { type: "array", items: { type: "object", additionalProperties: true } },
+    webhookEvents: { type: "array", items: { type: "string" } },
+    samplePayloads: { type: "object", additionalProperties: true },
+    connectorPreset: { type: "string" },
+    snippetTemplateRefs: { type: "array", items: { type: "string" } },
+  },
+  required: ["id", "vertical", "name", "description", "endpoints", "webhookEvents", "samplePayloads", "connectorPreset", "snippetTemplateRefs"],
+  additionalProperties: true,
+};
+
+const OUTPUT_SCHEMAS = Object.freeze({
+  parse_edi: PARSE_OUTPUT_SCHEMA,
+  validate_edi: VALIDATE_OUTPUT_SCHEMA,
+  search_docs: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      results: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            uri: { type: "string" },
+            title: { type: "string" },
+            score: { type: "integer" },
+            snippet: { type: "string" },
+          },
+          required: ["uri", "title", "score", "snippet"],
+          additionalProperties: false,
+        },
+      },
+      scope: { type: "string", const: "bundled-public-developer-index" },
+    },
+    required: ["query", "results", "scope"],
+    additionalProperties: false,
+  },
+  get_document_schema: {
+    type: "object",
+    properties: {
+      transactionSet: { type: "string", enum: ["850", "810", "856", "837"] },
+      name: { type: "string" },
+      variant: { type: "string" },
+      implementationGuide: { type: "string" },
+      direction: { type: "string" },
+      requiredSegments: { type: "array", items: { type: "string" } },
+      commonSegments: { type: "array", items: { type: "string" } },
+      keyFields: { type: "array", items: { type: "object", additionalProperties: true } },
+      envelope: { type: "object", additionalProperties: true },
+      authority: { type: "string" },
+      limitation: { type: "string" },
+      sourceUri: { type: "string" },
+    },
+    required: ["transactionSet", "name", "direction", "requiredSegments", "commonSegments", "keyFields", "envelope", "authority", "limitation", "sourceUri"],
+    additionalProperties: false,
+  },
+  generate_integration_example: {
+    type: "object",
+    properties: {
+      language: { type: "string", enum: ["curl", "node", "python"] },
+      operation: { type: "string", enum: ["parse", "validate", "send_outbound"] },
+      method: { type: "string", const: "POST" },
+      path: { type: "string" },
+      code: { type: "string" },
+      sourceUri: { type: "string" },
+      notes: { type: "array", items: { type: "string" } },
+    },
+    required: ["language", "operation", "method", "path", "code", "sourceUri", "notes"],
+    additionalProperties: false,
+  },
+  send_outbound_document: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", const: true },
+      documentId: { type: "string" },
+      status: { type: "string", const: "queued" },
+      environment: { type: "string", enum: ["SANDBOX", "PRODUCTION"] },
+      idempotentReplay: { type: "boolean" },
+    },
+    required: ["ok", "documentId", "status", "environment", "idempotentReplay"],
+    additionalProperties: true,
+  },
+  list_transactions: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", const: true },
+      transactions: { type: "array", items: TRANSACTION_SCHEMA },
+    },
+    required: ["ok", "transactions"],
+    additionalProperties: true,
+  },
+  get_transaction: {
+    type: "object",
+    properties: { ok: { type: "boolean", const: true }, transaction: TRANSACTION_SCHEMA },
+    required: ["ok", "transaction"],
+    additionalProperties: true,
+  },
+  list_connections: CONNECTION_LIST_OUTPUT_SCHEMA,
+  get_connection: CONNECTION_GET_OUTPUT_SCHEMA,
+  create_connection_draft: CONNECTION_CREATE_OUTPUT_SCHEMA,
+  configure_connection: {
+    ...CONNECTION_MUTATION_OUTPUT_SCHEMA,
+    description: "Sanitized workspace after an idempotent environment configuration.",
+  },
+  test_connection: CONNECTION_TEST_OUTPUT_SCHEMA,
+  request_connection_go_live: {
+    ...CONNECTION_MUTATION_OUTPUT_SCHEMA,
+    description: "Sanitized workspace after an idempotent GO_LIVE_APPROVED handoff request; production is not activated.",
+  },
+  quickbooks_status: QBO_STATUS_OUTPUT_SCHEMA,
+  quickbooks_sync_to_qbo: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", const: true },
+      total: { type: "integer" },
+      synced: { type: "integer" },
+      failed: { type: "integer" },
+      skipped: { type: "integer" },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      hasMore: { type: "boolean" },
+      nextCursor: STRING_OR_NULL,
+      idempotentReplay: { type: "boolean" },
+      results: { type: "array", items: { type: "object", additionalProperties: true } },
+    },
+    required: ["ok", "synced", "failed", "results", "idempotentReplay"],
+    additionalProperties: true,
+  },
+  quickbooks_export_to_edi: QBO_EXPORT_OUTPUT_SCHEMA,
+  quickbooks_list_entities: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", const: true },
+      entity: { type: "string", enum: ["Invoice", "Estimate", "PurchaseOrder", "Customer", "Vendor", "Item"] },
+      count: { type: "integer" },
+      rows: { type: "array", items: { type: "object", additionalProperties: true } },
+    },
+    required: ["ok", "entity", "count", "rows"],
+    additionalProperties: true,
+  },
+  quickbooks_disconnect: {
+    type: "object",
+    properties: {
+      ok: { type: "boolean", const: true },
+      success: { type: "boolean", const: true },
+      connected: { type: "boolean", const: false },
+      revoked: { type: "boolean" },
+      pendingRevocation: { type: "boolean" },
+      idempotentReplay: { type: "boolean" },
+    },
+    required: ["ok", "success", "connected", "revoked", "pendingRevocation", "idempotentReplay"],
+    additionalProperties: false,
+  },
+  list_partner_kits: {
+    type: "object",
+    properties: { ok: { type: "boolean", const: true }, kits: { type: "array", items: KIT_SCHEMA } },
+    required: ["ok", "kits"],
+    additionalProperties: true,
+  },
+  get_partner_kit: {
+    type: "object",
+    properties: { kit: KIT_SCHEMA },
+    required: ["kit"],
+    additionalProperties: false,
+  },
+  get_partner_requirements: {
+    type: "object",
+    properties: {
+      partnerName: { type: "string" },
+      partnerSpecific: { type: "boolean", const: false },
+      requirementsStatus: { type: "string", const: "generic-kit-only" },
+      warning: { type: "string" },
+      kit: KIT_SCHEMA,
+    },
+    required: ["partnerSpecific", "requirementsStatus", "warning", "kit"],
+    additionalProperties: false,
+  },
+  explain_edi_error: {
+    type: "object",
+    properties: {
+      meaning: { type: "string" },
+      typicalCause: { type: "string" },
+      fix: { type: "string" },
+      lookup_x12: { type: "array", items: { type: "object", additionalProperties: true } },
+      rawError: { type: "string" },
+    },
+    required: ["meaning", "typicalCause", "fix", "lookup_x12"],
+    additionalProperties: false,
+  },
+  generate_test_document: {
+    type: "object",
+    properties: { type: { type: "string", enum: ["850", "810", "856", "837"] }, content: { type: "string" } },
+    required: ["type", "content"],
+    additionalProperties: false,
+  },
+  lookup_x12: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      matches: { type: "array", items: { type: "object", additionalProperties: true } },
+    },
+    required: ["query", "matches"],
+    additionalProperties: false,
+  },
+  validate_x12_structure: VALIDATE_OUTPUT_SCHEMA,
+  parse_segments: PARSE_OUTPUT_SCHEMA,
+  lookup_element_definition: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      matches: { type: "array", items: { type: "object", additionalProperties: true } },
+    },
+    required: ["query", "matches"],
+    additionalProperties: false,
+  },
+});
+
+for (const tool of TOOLS) {
+  tool.title ||= tool.name.split("_").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+  tool.outputSchema = OUTPUT_SCHEMAS[tool.name];
+  if (!tool.outputSchema) throw new Error(`Missing output schema for MCP tool ${tool.name}`);
+}
+
 /** Look up a tool by name. */
 export function getTool(name) {
   return TOOLS.find((t) => t.name === name);
+}
+
+export function getToolsForProfile(profile) {
+  return TOOLS.filter((tool) => isToolAvailableInProfile(tool, profile));
 }
 
 /**
@@ -436,29 +1245,57 @@ export async function callTool(client, name, args) {
   const tool = getTool(name);
   if (!tool) return errorResult("UNKNOWN_TOOL", `Unknown tool: ${name}`, { tool: name });
 
-  if (client.demoMode && KEYED_ONLY_TOOLS.has(name)) {
-    return demoModeToolError(name);
+  const profile = client.profile || "docs";
+  if (!isToolAvailableInProfile(tool, profile)) {
+    return profileToolError(name, profile);
   }
 
-  const mutationError = validateMutationArgs(tool, args || {});
-  if (mutationError) return mutationError;
   const startedAt = Date.now();
+  const context = tool.localOnly ? {} : { requestId: requestId() };
+  const meta = requestMeta(context);
+  const mutationError = validateMutationArgs(tool, args || {}, meta);
+  if (mutationError) {
+    emitMetric({ tool: name, profile, ok: false, code: mutationError.structuredContent.error, requestId: context.requestId, latencyMs: Date.now() - startedAt });
+    return mutationError;
+  }
 
   try {
-    const result = await tool.handler(client, args || {});
-    emitMetric({ tool: name, ok: !result.isError, latencyMs: Date.now() - startedAt });
+    validateToolArguments(tool.inputSchema, args || {});
+    const result = await tool.handler(client, args || {}, context);
+    emitMetric({ tool: name, profile, ok: !result.isError, requestId: context.requestId, latencyMs: Date.now() - startedAt });
     if (client.demoMode && !result.isError) {
       return appendDemoFooter(result);
     }
     return result;
   } catch (err) {
-    const status = err && typeof err.status === "number" ? ` (HTTP ${err.status})` : "";
-    const code = typeof err?.code === "string" ? err.code : "TOOL_FAILED";
-    emitMetric({ tool: name, ok: false, code, latencyMs: Date.now() - startedAt });
-    return errorResult(code, `${tool.name} failed${status}: ${err?.message || String(err)}`, {
-      status: err?.status,
-      tool: name,
-    });
+    const remoteError = err?.remote === true;
+    const safeStatus = Number.isInteger(err?.status) && err.status >= 400 && err.status <= 599
+      ? err.status
+      : undefined;
+    const status = safeStatus === undefined ? "" : ` (HTTP ${safeStatus})`;
+    const code = remoteError
+      ? safeRemoteErrorCode(err?.code)
+      : typeof err?.code === "string" ? err.code : "TOOL_FAILED";
+    const errorRequestId = safeRemoteIdentifier(err?.requestId)
+      || safeRemoteIdentifier(context.requestId);
+    const correlationId = safeRemoteIdentifier(err?.correlationId);
+    emitMetric({ tool: name, profile, ok: false, code, requestId: errorRequestId, latencyMs: Date.now() - startedAt });
+    return errorResult(
+      code,
+      remoteError
+        ? `${tool.name} failed${status}. Sensitive upstream diagnostics were withheld.`
+        : `${tool.name} failed${status}: ${err?.message || String(err)}`,
+      {
+        ...(safeStatus === undefined ? {} : { status: safeStatus }),
+        tool: name,
+        ...(!remoteError && Array.isArray(err?.details) ? { validationErrors: err.details } : {}),
+        ...(!remoteError && err?.fieldErrors && typeof err.fieldErrors === "object" ? { fieldErrors: err.fieldErrors } : {}),
+        ...(correlationId ? { correlationId } : {}),
+        ...(!remoteError && (typeof err?.detail === "string" || err?.detail === null) ? { detail: err.detail } : {}),
+        ...(typeof errorRequestId === "string" ? { requestId: errorRequestId } : {}),
+      },
+      requestMeta({ requestId: errorRequestId }),
+    );
   }
 }
 

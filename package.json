@@ -1,11 +1,11 @@
 {
   "name": "@signaledi/mcp-server",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "mcpName": "io.github.SignalEDI/mcp-server",
-  "description": "Model Context Protocol (MCP) server for SignalEDI — parse, validate, send, and inspect X12 EDI documents, and sync EDI ↔ QuickBooks Online, from any MCP client (Claude Desktop, Cursor, Windsurf).",
+  "description": "SignalEDI developer MCP server for X12 guidance, synthetic fixtures, governed connections, and profile-gated REST API workflows.",
   "license": "MIT",
   "author": "SignalEDI",
-  "homepage": "https://signaledi.com/developers#mcp",
+  "homepage": "https://signaledi.com/developers/pricing#mcp",
   "repository": {
     "type": "git",
     "url": "https://github.com/SignalEDI/mcp-server.git"
@@ -21,15 +21,20 @@
     "LICENSE",
     "MIRROR.md",
     "README.md",
+    "RELEASE_NOTES_0.5.0.md",
     "server.json",
+    "stdio-smoke.mjs",
     "test.mjs"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node src/index.mjs",
-    "test": "node test.mjs"
+    "validate:release": "node scripts/validate-release.mjs",
+    "test": "node test.mjs",
+    "test:stdio": "node stdio-smoke.mjs && node stdio-smoke.mjs sandbox && node stdio-smoke.mjs production",
+    "verify": "npm run validate:release && npm test && npm run test:stdio && npm pack --dry-run && node consumer-install-smoke.mjs"
   },
   "keywords": [
     "edi",
@@ -48,6 +53,6 @@
     "accounting"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "1.30.0"
   }
 }

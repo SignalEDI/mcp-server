@@ -1,11 +1,20 @@
 #!/usr/bin/env node
-/** Example: parse raw EDI via the MCP server's parse_edi tool contract (HTTP playground in demo mode). */
+/** Example: parse a synthetic document through an authenticated non-production API. */
 import { SignalEDIClient } from "../src/client.mjs";
+import { renderTestDocument } from "../src/templates.mjs";
 
-const sample =
-  "ISA*00*          *00*          *ZZ*SYNTHVND       *ZZ*SYNTHRCV       *260101*1200*U*00401*000000001*0*P*>~" +
-  "GS*PO*SYNTHVND*SYNTHRCV*20260101*1200*1*X*004010~ST*850*0001~BEG*00*SA*PO-DEMO-001**20260101~SE*4*0001~GE*1*1~IEA*1*000000001~";
+const sample = renderTestDocument("850");
 
-const client = new SignalEDIClient({ demoMode: true });
+const apiKey = process.env.SIGNALEDI_API_KEY;
+if (!apiKey) throw new Error("Set SIGNALEDI_API_KEY before running this authenticated example.");
+const baseUrl = process.env.SIGNALEDI_BASE_URL;
+if (!baseUrl) throw new Error("Set SIGNALEDI_BASE_URL to a verified non-production API base.");
+
+const client = new SignalEDIClient({ apiKey, profile: "sandbox", baseUrl, allowCustomBaseUrl: true });
 const result = await client.parse(sample);
-console.log(JSON.stringify(result, null, 2));
+const validation = result.validation ?? {};
+console.log(JSON.stringify({
+  valid: validation.valid,
+  transactionSet: validation.transactionSet,
+  errorCount: Array.isArray(validation.errors) ? validation.errors.length : 0,
+}, null, 2));
