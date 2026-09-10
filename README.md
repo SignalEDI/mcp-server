@@ -204,6 +204,31 @@ Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
 }
 ```
 
+## Claude Desktop (MCPB)
+
+Package the same stdio server as a Claude Desktop Extension (`.mcpb`). Source: `mcpb/manifest.json` + `scripts/build-mcpb.mjs`. See `mcpb/README.md` for full build and submit notes.
+
+```bash
+npm ci
+npm run build:mcpb
+# → dist/signaledi-mcp-server-0.5.0.mcpb
+```
+
+Install by double-clicking the `.mcpb`, dragging it into Claude Desktop, or **Settings → Extensions → Advanced → Install Extension…**. Extension settings map to the same env vars as `server.json` (`SIGNALEDI_API_KEY`, `SIGNALEDI_BASE_URL`, `SIGNALEDI_MCP_PROFILE`, etc.). Author/publisher: SignalEDI · Support@signaledi.com · https://signaledi.com.
+
+**Directory submit (manual only):** do not submit from this agent/CI. When ready, follow Anthropic’s [desktop extension submission](https://claude.com/docs/connectors/building/submission) form after building/testing the artifact. Tooling: [`@anthropic-ai/mcpb`](https://github.com/anthropics/mcpb) (`mcpb pack` / `mcpb validate`). Spec: [Build a desktop extension with MCPB](https://claude.com/docs/connectors/building/mcpb).
+
+## Google Antigravity
+
+Manual Antigravity / Gemini-style plugin folder at `antigravity-plugin/` (wires `mcp_config.json` → `npx -y @signaledi/mcp-server@0.5.0`). MCP Store listing is **not self-serve**; install by copying the folder:
+
+| Scope | Path |
+| --- | --- |
+| Global | `~/.gemini/config/plugins/signaledi` |
+| Workspace | `.agents/plugins/signaledi` (or `_agents/plugins/signaledi`) |
+
+See `antigravity-plugin/README.md`. Brand: SignalEDI only.
+
 ## Cursor Marketplace
 
 This public repository is packaged as a Cursor Plugin for the official Marketplace. The plugin launches the same npm package over stdio — there is no parallel MCP implementation.
@@ -231,6 +256,10 @@ This public repository is packaged as a Cursor Plugin for the official Marketpla
 Plugin `mcp.json` uses `${VAR}` placeholders that match those dashboard variables (not the manual `${env:NAME}` syntax used in project `.cursor/mcp.json`). Unset placeholders stay fail-closed on the keyless `docs` profile. Marketplace one-click install requires `@signaledi/mcp-server@0.5.0` (or newer matching pin) on npm; until that publish lands, local/manual `npx` against a published version still works for verification.
 
 Publishing is subject to the [Cursor Marketplace Publisher Terms](https://cursor.com/marketplace-publisher-terms). Marketplace plugins must be open source and pass manual review; see [marketplace security](https://cursor.com/help/security-and-privacy/marketplace-security).
+
+## Privacy Policy
+
+SignalEDI’s product privacy policy is published at [https://signaledi.com/privacy](https://signaledi.com/privacy). The MCP adapter runs locally over stdio; authenticated calls send tool inputs to the SignalEDI API host you configure. Tool arguments, text results, and structured results enter the MCP host and may enter model context—see **Production data handling** above. Contact: Support@signaledi.com.
 
 VS Code uses `.vscode/mcp.json`, a top-level `servers` object, and a password input for secrets:
 
