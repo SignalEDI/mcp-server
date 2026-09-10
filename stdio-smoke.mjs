@@ -226,16 +226,22 @@ try {
     const edifact = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "EDIFACT" } });
     assert.equal(edifact.isError, true);
     assert.equal(edifact.structuredContent.error, "OUT_OF_SCOPE_FORMAT");
-    const unknown = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "855" } });
+    const unknown = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "820" } });
     assert.equal(unknown.isError, true);
     assert.equal(unknown.structuredContent.error, "UNSUPPORTED_TRANSACTION_SET");
     const baseline = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "850" } });
     assert.equal(baseline.structuredContent.capability, "baseline");
+    const transport = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "204" } });
+    assert.equal(transport.structuredContent.capability, "baseline");
+    const warehouse = await client.callTool({ name: "generate_test_document", arguments: { type: "940" } });
+    assert.equal(warehouse.structuredContent.capability, "baseline");
+    assert.match(warehouse.structuredContent.content, /ST\*940\*/);
     const partial = await client.callTool({ name: "generate_test_document", arguments: { type: "837" } });
     assert.equal(partial.structuredContent.capability, "partial");
   }
 
   console.log(`stdio smoke passed: ${tools.tools.length} ${childEnv.SIGNALEDI_MCP_PROFILE} tools, ${resources.resources.length} resources, ${templates.resourceTemplates.length} template, ${prompts.prompts.length} prompts`);
+  assert.equal(resources.resources.length, 23);
 } finally {
   await client.close();
 }
