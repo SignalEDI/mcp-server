@@ -44,7 +44,12 @@ check(manifest.documentation === "https://signaledi.com/developers/pricing#mcp",
 check(manifest.support === "https://github.com/SignalEDI/mcp-server/issues", "support must be the GitHub issues URL");
 check(manifest.icon === "icon.png", "icon must be icon.png at bundle root");
 check(manifest.license === "MIT", "license must be MIT");
-check(Array.isArray(manifest.privacy_policies) && manifest.privacy_policies.includes("https://signaledi.com/privacy"), "privacy_policies must include https://signaledi.com/privacy");
+check(
+  Array.isArray(manifest.privacy_policies) &&
+    manifest.privacy_policies.length > 0 &&
+    manifest.privacy_policies.every((url) => typeof url === "string" && /^https:\/\/signaledi\.com\/privacy\/?$/.test(url)),
+  "privacy_policies must list only https://signaledi.com/privacy",
+);
 check(!/challan116/i.test(JSON.stringify(manifest)), "branding must be SignalEDI only (never challan116)");
 
 check(manifest.server?.type === "node", "server.type must be node");
