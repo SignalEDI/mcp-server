@@ -152,7 +152,10 @@ check(tests.includes("remote missing-scope and deprecated-umbrella API errors su
 check(tests.includes("local schema and fixture tools refuse out-of-scope EDI flavors and unknown sets"), "unit contract must cover EDIFACT/HL7/unknown-set refusals");
 check(tests.includes("get_document_schema never claims partner-IG authority for supported starters"), "unit contract must cover partner-IG non-impersonation");
 check(tests.includes("local inventory exposes every schema/fixture pair with honest capability labels"), "unit contract must cover local inventory capability labels");
+check(tests.includes('"204", "210", "211", "212", "214"'), "unit contract must cover transport X12 inventory");
+check(tests.includes('"940", "943", "944", "945", "947", "990"'), "unit contract must cover warehouse/load-tender X12 inventory");
 check(stdio.includes("{ docs: 7, sandbox: 28, production: 21 }"), "stdio smoke must enforce 7/28/21 tools");
+check(stdio.includes("assert.equal(resources.resources.length, 23)"), "stdio smoke must expose full local document schema resources");
 check(stdio.includes('"explain_edi_error"'), "stdio smoke must pin the exact docs tool set");
 check(stdio.includes("OUT_OF_SCOPE_FORMAT"), "stdio smoke must refuse out-of-scope formats");
 check(pkg.scripts?.["test:stdio"]?.includes("stdio-smoke.mjs sandbox"), "stdio script must run sandbox profile");

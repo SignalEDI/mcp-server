@@ -6,9 +6,10 @@ const ENVELOPE = Object.freeze({
 });
 
 /**
- * Honest local inventory discovered from this package's schemas + synthetic fixtures.
- * The X12 dictionary only adds segment/ack lookup aids and does not invent additional
- * transaction-set starters. No other sets are exposed without a schema + fixture pair.
+ * Local inventory = every X12 set this package can honestly expose with both a
+ * public starter schema and a synthetic fixture. Sourced from the outbound
+ * allowlist plus healthcare 837 Professional. Capability labels stay honest:
+ * baseline = full public starter; partial = intentionally limited variant.
  */
 const DOCUMENT_SCHEMAS = Object.freeze({
   "850": {
@@ -47,6 +48,22 @@ const DOCUMENT_SCHEMAS = Object.freeze({
       { field: "totalInvoiceAmount", x12: "TDS01", required: true },
     ],
   },
+  "855": {
+    transactionSet: "855",
+    name: "Purchase Order Acknowledgment",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a supplier",
+    requiredSegments: ["BAK", "PO1"],
+    commonSegments: ["REF", "DTM", "N1", "N3", "N4", "ACK", "CTT"],
+    keyFields: [
+      { field: "acknowledgmentType", x12: "BAK01", required: true },
+      { field: "purchaseOrderNumber", x12: "BAK03", required: true },
+      { field: "purchaseOrderDate", x12: "BAK04", required: true },
+      { field: "lineNumber", x12: "PO101", required: true },
+      { field: "lineItemStatus", x12: "ACK01", required: false },
+    ],
+  },
   "856": {
     transactionSet: "856",
     name: "Ship Notice / Manifest",
@@ -62,6 +79,205 @@ const DOCUMENT_SCHEMAS = Object.freeze({
       { field: "hierarchicalLevelCode", x12: "HL03", required: true },
       { field: "purchaseOrderNumber", x12: "PRF01", required: false },
       { field: "trackingOrPackageId", x12: "MAN02", required: false },
+    ],
+  },
+  "204": {
+    transactionSet: "204",
+    name: "Motor Carrier Load Tender",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipper or broker to a carrier",
+    requiredSegments: ["B2", "B2A"],
+    commonSegments: ["L11", "G62", "N1", "N3", "N4", "S5", "OID", "L5", "AT8"],
+    keyFields: [
+      { field: "scac", x12: "B202", required: true },
+      { field: "shipmentIdentification", x12: "B204", required: true },
+      { field: "purposeCode", x12: "B2A01", required: true },
+      { field: "stopSequence", x12: "S501", required: false },
+    ],
+  },
+  "210": {
+    transactionSet: "210",
+    name: "Motor Carrier Freight Details and Invoice",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a carrier",
+    requiredSegments: ["B3", "N1"],
+    commonSegments: ["C3", "G62", "R3", "LX", "L5", "L0", "L1", "L3"],
+    keyFields: [
+      { field: "invoiceNumber", x12: "B302", required: true },
+      { field: "scac", x12: "B303", required: true },
+      { field: "shipmentIdentification", x12: "B307", required: false },
+      { field: "netAmountDue", x12: "L301", required: false },
+    ],
+  },
+  "211": {
+    transactionSet: "211",
+    name: "Motor Carrier Bill of Lading",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipper or carrier",
+    requiredSegments: ["BOL", "N1"],
+    commonSegments: ["G62", "L11", "AT5", "LX", "L5", "L0", "L3"],
+    keyFields: [
+      { field: "bolNumber", x12: "BOL02", required: true },
+      { field: "scac", x12: "BOL01", required: true },
+      { field: "shipmentMethodOfPayment", x12: "BOL03", required: false },
+    ],
+  },
+  "212": {
+    transactionSet: "212",
+    name: "Motor Carrier Delivery Trailer Manifest",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a carrier",
+    requiredSegments: ["ATA", "AT7"],
+    commonSegments: ["B2A", "L11", "N1", "N3", "N4", "LX", "OID"],
+    keyFields: [
+      { field: "scac", x12: "ATA01", required: true },
+      { field: "manifestNumber", x12: "ATA02", required: true },
+      { field: "statusCode", x12: "AT701", required: true },
+    ],
+  },
+  "214": {
+    transactionSet: "214",
+    name: "Transportation Carrier Shipment Status Message",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a carrier",
+    requiredSegments: ["B10", "LX", "AT7"],
+    commonSegments: ["L11", "MAN", "Q7", "N1", "N3", "N4", "MS1", "MS2"],
+    keyFields: [
+      { field: "referenceIdentification", x12: "B1001", required: true },
+      { field: "scac", x12: "B1002", required: true },
+      { field: "statusCode", x12: "AT701", required: true },
+      { field: "statusDate", x12: "AT705", required: false },
+    ],
+  },
+  "753": {
+    transactionSet: "753",
+    name: "Request for Routing Instructions",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipper",
+    requiredSegments: ["BGN", "N1"],
+    commonSegments: ["PER", "Y6", "LX", "L11", "OID", "G62"],
+    keyFields: [
+      { field: "purposeCode", x12: "BGN01", required: true },
+      { field: "referenceIdentification", x12: "BGN02", required: true },
+      { field: "transactionDate", x12: "BGN03", required: true },
+    ],
+  },
+  "754": {
+    transactionSet: "754",
+    name: "Routing Instructions",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a carrier or logistics provider",
+    requiredSegments: ["BGN", "N1"],
+    commonSegments: ["PER", "LX", "L11", "OID", "G62", "QTY"],
+    keyFields: [
+      { field: "purposeCode", x12: "BGN01", required: true },
+      { field: "referenceIdentification", x12: "BGN02", required: true },
+      { field: "transactionDate", x12: "BGN03", required: true },
+    ],
+  },
+  "858": {
+    transactionSet: "858",
+    name: "Shipment Information",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipper or 3PL",
+    requiredSegments: ["BGN", "N1", "HL"],
+    commonSegments: ["N9", "G62", "NTE", "L0", "L5", "MAN"],
+    keyFields: [
+      { field: "purposeCode", x12: "BGN01", required: true },
+      { field: "referenceIdentification", x12: "BGN02", required: true },
+      { field: "hierarchicalId", x12: "HL01", required: true },
+    ],
+  },
+  "940": {
+    transactionSet: "940",
+    name: "Warehouse Shipping Order",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipper to a warehouse",
+    requiredSegments: ["W05", "N1", "W66"],
+    commonSegments: ["N9", "G62", "NTE", "LX", "W01", "G69", "NTE"],
+    keyFields: [
+      { field: "orderStatusCode", x12: "W0501", required: true },
+      { field: "depositOrderNumber", x12: "W0502", required: true },
+      { field: "warehouseId", x12: "N104 with qualifier WH", required: false },
+    ],
+  },
+  "943": {
+    transactionSet: "943",
+    name: "Warehouse Stock Transfer Shipment Advice",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a shipping warehouse",
+    requiredSegments: ["W06", "N1", "W27"],
+    commonSegments: ["G62", "N9", "W04", "G69", "W20"],
+    keyFields: [
+      { field: "reportingCode", x12: "W0601", required: true },
+      { field: "depositorOrderNumber", x12: "W0602", required: true },
+      { field: "shipmentDate", x12: "W0603", required: false },
+    ],
+  },
+  "944": {
+    transactionSet: "944",
+    name: "Warehouse Stock Transfer Receipt Advice",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a receiving warehouse",
+    requiredSegments: ["W17", "N1", "W07"],
+    commonSegments: ["G62", "N9", "W14", "G69", "W20"],
+    keyFields: [
+      { field: "reportingCode", x12: "W1701", required: true },
+      { field: "depositorOrderNumber", x12: "W1702", required: true },
+      { field: "receiptDate", x12: "W1703", required: false },
+    ],
+  },
+  "945": {
+    transactionSet: "945",
+    name: "Warehouse Shipping Advice",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a warehouse",
+    requiredSegments: ["W06", "N1", "LX", "W12"],
+    commonSegments: ["G62", "N9", "W03", "W27", "G69", "NTE"],
+    keyFields: [
+      { field: "reportingCode", x12: "W0601", required: true },
+      { field: "depositorOrderNumber", x12: "W0602", required: true },
+      { field: "quantityShipped", x12: "W1202", required: false },
+    ],
+  },
+  "947": {
+    transactionSet: "947",
+    name: "Warehouse Inventory Adjustment Advice",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a warehouse",
+    requiredSegments: ["W15", "N1", "W19"],
+    commonSegments: ["G62", "N9", "W20", "G69", "NTE"],
+    keyFields: [
+      { field: "reportingCode", x12: "W1501", required: true },
+      { field: "date", x12: "W1502", required: true },
+      { field: "adjustmentReason", x12: "W1901", required: false },
+    ],
+  },
+  "990": {
+    transactionSet: "990",
+    name: "Response to a Load Tender",
+    capability: "baseline",
+    fixture: true,
+    direction: "commonly outbound from a carrier",
+    requiredSegments: ["B1", "N9"],
+    commonSegments: ["G62", "N7", "L11", "K1"],
+    keyFields: [
+      { field: "scac", x12: "B101", required: true },
+      { field: "shipmentIdentification", x12: "B102", required: true },
+      { field: "reservationActionCode", x12: "B103", required: true },
     ],
   },
   "837": {
@@ -85,8 +301,21 @@ const DOCUMENT_SCHEMAS = Object.freeze({
   },
 });
 
-/** Local starter inventory that both schema and synthetic-fixture tools may expose. */
-export const LOCAL_DOCUMENT_SET_CODES = Object.freeze(["850", "810", "856", "837"]);
+/**
+ * Stable discovery order: retail/order, transport, warehouse, load-tender response, healthcare.
+ * Intentionally not Object.keys() — numeric-looking keys would sort lexicographically wrong.
+ */
+export const LOCAL_DOCUMENT_SET_CODES = Object.freeze([
+  "850", "810", "855", "856",
+  "204", "210", "211", "212", "214", "753", "754", "858",
+  "940", "943", "944", "945", "947", "990",
+  "837",
+]);
+
+/** Local sets that mirror the MCP outbound send allowlist (excludes healthcare 837). */
+export const LOCAL_OUTBOUND_DOCUMENT_TYPES = Object.freeze(
+  LOCAL_DOCUMENT_SET_CODES.filter((code) => code !== "837"),
+);
 
 export function listDocumentSchemas() {
   return LOCAL_DOCUMENT_SET_CODES.map((code) => {
@@ -149,7 +378,7 @@ export function getDocumentSchema(transactionSet) {
     ...schema,
     envelope: ENVELOPE,
     authority: "SignalEDI public starter schema",
-    limitation: schema.capability === "partial"
+    limitation: schema.capability === "partial" && code === "837"
       ? "This starter covers 837 Professional 005010X222A1 only; 837 Institutional and Dental are not supported here. It is a partial public aid, not a payer or trading-partner implementation guide. Apply the current partner guide and test requirements before production use."
       : "This is a baseline implementation aid, not a trading-partner implementation guide. Apply the partner's current guide and test requirements before production use.",
     sourceUri: `signaledi://documents/${code}/schema`,
