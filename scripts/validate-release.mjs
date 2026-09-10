@@ -116,7 +116,7 @@ for (const required of expectedPackageFiles) {
   check(packageFiles.has(required), `package files allowlist is missing ${required}`);
   await requireFile(required);
 }
-for (const sourceOnly of ["package-lock.json", "consumer-install-smoke.mjs", "scripts/validate-release.mjs"]) {
+for (const sourceOnly of ["package-lock.json", "consumer-install-smoke.mjs", "scripts/validate-release.mjs", "scripts/resolve-github-main.sh"]) {
   await requireFile(sourceOnly);
 }
 
@@ -172,6 +172,26 @@ if (standaloneAuthority) {
   check(publishWorkflow.includes("1291556004"), "publishing must bind the immutable repository id");
   check(publishWorkflow.includes("^mcp-v[0-9]+\\.[0-9]+\\.[0-9]+$"), "publishing must accept only stable MCP tags");
   check(publishWorkflow.includes("release tag must point at current GitHub main"), "publishing must require exact current main");
+  check(publishWorkflow.includes("GH_TOKEN: ${{ github.token }}"), "publishing must authenticate gh with GITHUB_TOKEN");
+  check(
+    (publishWorkflow.match(/scripts\/resolve-github-main\.sh/g) ?? []).length >= 2,
+    "publishing must resolve main via scripts/resolve-github-main.sh at the gate and again before npm publish",
+  );
+  check(
+    !publishWorkflow.includes("if (!response.ok) process.exit(1)"),
+    "publishing must not silently exit on GitHub API failure",
+  );
+  const resolveMainScript = await read("scripts/resolve-github-main.sh");
+  check(resolveMainScript.includes('gh api "repos/${GITHUB_REPOSITORY}/branches/main"'), "main resolver must use gh api");
+  check(
+    resolveMainScript.includes("GitHub API HTTP") && resolveMainScript.includes("body:"),
+    "main resolver must log GitHub API status and body on failure",
+  );
+  check(!resolveMainScript.includes("process.exit(1)"), "main resolver must not use silent node process.exit");
+  check(
+    resolveMainScript.includes("printf '%s %s\\n'") || resolveMainScript.includes('printf "%s %s\\n"'),
+    "main resolver must emit a trailing newline so bash read does not fail under set -e",
+  );
   check(publishWorkflow.includes('PUBLISHER_VERSION="v1.8.1"'), "MCP publisher must be version-pinned");
   check(publishWorkflow.includes("a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"), "MCP publisher checksum must be pinned");
   check(publishWorkflow.includes('"$RUNNER_TEMP/mcp-publisher" validate server.json'), "official MCP publisher must validate server.json");
