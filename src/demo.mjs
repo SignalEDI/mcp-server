@@ -43,10 +43,23 @@ export function appendDemoFooter(result) {
   };
 }
 
+/** Cursor/plugin hosts may pass unexpanded `${VAR}` placeholders when unset. */
+const UNEXPANDED_ENV_PLACEHOLDER =
+  /^(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\}|\{\{[A-Za-z_][A-Za-z0-9_]*\}\})$/;
+
+/** Read a trimmed env value, treating empty or unexpanded placeholders as unset. */
+export function readEnvValue(env, name) {
+  const raw = env?.[name];
+  if (raw == null) return undefined;
+  const value = String(raw).trim();
+  if (!value || UNEXPANDED_ENV_PLACEHOLDER.test(value)) return undefined;
+  return value;
+}
+
 /** Resolve MCP client config from environment variables. */
 export function resolveStartupFromEnv(env = process.env) {
-  const providedApiKey = env.SIGNALEDI_API_KEY?.trim();
-  const requestedProfile = env.SIGNALEDI_MCP_PROFILE?.trim().toLowerCase();
+  const providedApiKey = readEnvValue(env, "SIGNALEDI_API_KEY");
+  const requestedProfile = readEnvValue(env, "SIGNALEDI_MCP_PROFILE")?.toLowerCase();
   const profile = requestedProfile || "docs";
   if (!MCP_PROFILES.includes(profile)) {
     throw new Error(`SIGNALEDI_MCP_PROFILE must be one of ${MCP_PROFILES.join(", ")}.`);
@@ -55,11 +68,11 @@ export function resolveStartupFromEnv(env = process.env) {
     throw new Error(`${profile} profile requires SIGNALEDI_API_KEY.`);
   }
 
-  const baseUrl = env.SIGNALEDI_BASE_URL?.trim() || undefined;
+  const baseUrl = readEnvValue(env, "SIGNALEDI_BASE_URL");
   if (profile !== "docs" && !baseUrl) {
     throw new Error(`${profile} profile requires an explicit SIGNALEDI_BASE_URL.`);
   }
-  const allowProduction = /^(1|true)$/i.test(env.SIGNALEDI_MCP_ALLOW_PRODUCTION || "");
+  const allowProduction = /^(1|true)$/i.test(readEnvValue(env, "SIGNALEDI_MCP_ALLOW_PRODUCTION") || "");
   if (profile === "production" && !allowProduction) {
     throw new Error("production profile requires SIGNALEDI_MCP_ALLOW_PRODUCTION=1.");
   }
@@ -69,7 +82,7 @@ export function resolveStartupFromEnv(env = process.env) {
     apiKey: profile === "docs" ? undefined : providedApiKey,
     baseUrl,
     baseUrlExplicit: Boolean(baseUrl),
-    allowCustomBaseUrl: /^(1|true)$/i.test(env.SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL || ""),
+    allowCustomBaseUrl: /^(1|true)$/i.test(readEnvValue(env, "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL") || ""),
     allowProduction,
   };
 }

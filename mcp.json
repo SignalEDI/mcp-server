@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "signaledi": {
+      "command": "npx",
+      "args": ["-y", "@signaledi/mcp-server@0.5.0"],
+      "env": {
+        "SIGNALEDI_MCP_PROFILE": "${SIGNALEDI_MCP_PROFILE}",
+        "SIGNALEDI_API_KEY": "${SIGNALEDI_API_KEY}",
+        "SIGNALEDI_BASE_URL": "${SIGNALEDI_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "${SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_PRODUCTION": "${SIGNALEDI_MCP_ALLOW_PRODUCTION}"
+      }
+    }
+  }
+}
