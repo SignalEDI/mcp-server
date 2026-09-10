@@ -151,8 +151,10 @@ check(tests.includes("parse_edi rejects oversized EDI at the tool schema boundar
 check(tests.includes("remote missing-scope and deprecated-umbrella API errors surface safely"), "unit contract must cover missing-scope and deprecated-umbrella error mapping");
 check(tests.includes("local schema and fixture tools refuse out-of-scope EDI flavors and unknown sets"), "unit contract must cover EDIFACT/HL7/unknown-set refusals");
 check(tests.includes("get_document_schema never claims partner-IG authority for supported starters"), "unit contract must cover partner-IG non-impersonation");
+check(tests.includes("local inventory exposes every schema/fixture pair with honest capability labels"), "unit contract must cover local inventory capability labels");
 check(stdio.includes("{ docs: 7, sandbox: 28, production: 21 }"), "stdio smoke must enforce 7/28/21 tools");
 check(stdio.includes('"explain_edi_error"'), "stdio smoke must pin the exact docs tool set");
+check(stdio.includes("OUT_OF_SCOPE_FORMAT"), "stdio smoke must refuse out-of-scope formats");
 check(pkg.scripts?.["test:stdio"]?.includes("stdio-smoke.mjs sandbox"), "stdio script must run sandbox profile");
 check(pkg.scripts?.["test:stdio"]?.includes("stdio-smoke.mjs production"), "stdio script must run production profile");
 check(pkg.scripts?.verify?.includes("consumer-install-smoke.mjs"), "verify script must install and run the packed consumer");

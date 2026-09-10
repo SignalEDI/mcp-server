@@ -50,7 +50,7 @@ export function listResourceTemplates() {
       uriTemplate: "signaledi://documents/{transactionSet}/schema",
       name: "X12 starter document schema",
       title: "SignalEDI X12 starter schema",
-      description: "Public baseline schema for a supported X12 transaction set: 850, 810, 856, or 837 Professional (005010X222A1).",
+      description: "Public baseline or partial schema for a supported local X12 transaction set: 850, 810, 856 (baseline), or 837 Professional (partial).",
       mimeType: "text/markdown",
       annotations: { audience: ["user", "assistant"], priority: 0.8 },
     },

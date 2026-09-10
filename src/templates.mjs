@@ -1,13 +1,20 @@
 /** Synthetic X12 templates — obviously fake identifiers; shared by generate_test_document. */
 
+import { LOCAL_DOCUMENT_SET_CODES, getDocumentSchema, unsupportedDocumentSetError } from "./document-schemas.mjs";
+
 const BASE_ISA = (control, setId) =>
   `ISA*00*          *00*          *ZZ*SYNTHVND       *ZZ*SYNTHRCV       *260101*1200*U*00401*${control}*0*P*>~`;
+
+export const LOCAL_TEST_DOCUMENT_TYPES = LOCAL_DOCUMENT_SET_CODES;
 
 /**
  * @param {"850"|"810"|"856"|"837"} type
  * @param {{ controlNumber?: string, poNumber?: string, date?: string }} overrides
  */
 export function renderTestDocument(type, overrides = {}) {
+  if (!LOCAL_DOCUMENT_SET_CODES.includes(type)) {
+    throw unsupportedDocumentSetError(type);
+  }
   validateOverrides(type, overrides);
   const control = overrides.controlNumber ?? "000000001";
   const po = overrides.poNumber ?? "PO-DEMO-001";
@@ -84,8 +91,13 @@ export function renderTestDocument(type, overrides = {}) {
         `IEA*1*${control}~`,
       ].join("");
     default:
-      throw new Error(`Unsupported document type: ${type}`);
+      throw unsupportedDocumentSetError(type);
   }
+}
+
+/** Capability label for a locally rendered synthetic fixture. */
+export function localFixtureCapability(type) {
+  return getDocumentSchema(type).capability;
 }
 
 function validateOverrides(type, overrides) {

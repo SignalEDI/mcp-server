@@ -174,13 +174,14 @@ try {
     });
     assert.equal(schema.isError, undefined);
     assert.equal(schema.structuredContent.transactionSet, "850");
+    assert.equal(schema.structuredContent.capability, "baseline");
     assert.match(schema.structuredContent.limitation, /not a trading-partner implementation guide/i);
     const refused = await client.callTool({
       name: "get_document_schema",
       arguments: { transactionSet: "EDIFACT" },
     });
     assert.equal(refused.isError, true);
-    assert.match(JSON.stringify(refused), /INVALID_TOOL_ARGUMENTS|enum|invalid/i);
+    assert.equal(refused.structuredContent.error, "OUT_OF_SCOPE_FORMAT");
   } finally {
     await client.close();
   }
