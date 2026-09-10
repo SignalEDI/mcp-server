@@ -1,0 +1,62 @@
+{
+  "name": "signaledi",
+  "displayName": "SignalEDI",
+  "version": "0.5.0",
+  "description": "X12 EDI developer MCP for docs, synthetic fixtures, governed connections, and profile-gated sandbox/production API workflows.",
+  "author": {
+    "name": "SignalEDI"
+  },
+  "homepage": "https://signaledi.com/developers/pricing#mcp",
+  "repository": "https://github.com/SignalEDI/mcp-server",
+  "license": "MIT",
+  "keywords": [
+    "edi",
+    "x12",
+    "mcp",
+    "cursor",
+    "signaledi",
+    "850",
+    "810",
+    "856",
+    "quickbooks"
+  ],
+  "logo": "assets/logo.svg",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "SIGNALEDI_MCP_PROFILE": {
+        "type": "string",
+        "title": "MCP profile",
+        "description": "Capability boundary: docs (keyless default), sandbox (verified non-production base + key), or production (fail-closed opt-in).",
+        "enum": ["docs", "sandbox", "production"],
+        "default": "docs"
+      },
+      "SIGNALEDI_API_KEY": {
+        "type": "string",
+        "title": "API key",
+        "description": "Least-privilege workspace API key. Ignored by docs; required for sandbox and production. Never paste keys into prompts."
+      },
+      "SIGNALEDI_BASE_URL": {
+        "type": "string",
+        "title": "API base URL",
+        "description": "Origin-only API base. Sandbox requires a verified non-production URL; production requires exactly https://signaledi.com."
+      },
+      "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": {
+        "type": "string",
+        "title": "Allow custom base URL",
+        "description": "Set to 1 only after verifying a custom API host (localhost, preview, or sandbox).",
+        "enum": ["", "1"],
+        "default": ""
+      },
+      "SIGNALEDI_MCP_ALLOW_PRODUCTION": {
+        "type": "string",
+        "title": "Allow production",
+        "description": "Independent production opt-in. Set to 1 only with profile=production, canonical base, and a production-authorized key.",
+        "enum": ["", "1"],
+        "default": ""
+      }
+    }
+  }
+}

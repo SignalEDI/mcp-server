@@ -32,9 +32,10 @@
   "scripts": {
     "start": "node src/index.mjs",
     "validate:release": "node scripts/validate-release.mjs",
+    "validate:cursor-plugin": "node scripts/validate-cursor-plugin.mjs",
     "test": "node test.mjs",
     "test:stdio": "node stdio-smoke.mjs && node stdio-smoke.mjs sandbox && node stdio-smoke.mjs production",
-    "verify": "npm run validate:release && npm test && npm run test:stdio && npm pack --dry-run && node consumer-install-smoke.mjs"
+    "verify": "npm run validate:release && npm run validate:cursor-plugin && npm test && npm run test:stdio && npm pack --dry-run && node consumer-install-smoke.mjs"
   },
   "keywords": [
     "edi",

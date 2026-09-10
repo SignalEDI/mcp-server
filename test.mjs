@@ -642,6 +642,83 @@ await test("startup profiles default safely and require keys when authenticated"
   assert.doesNotThrow(() => new SignalEDIClient(production));
 });
 
+await test("startup treats unexpanded Cursor plugin placeholders as unset", () => {
+  const unset = resolveStartupFromEnv({
+    SIGNALEDI_MCP_PROFILE: "${SIGNALEDI_MCP_PROFILE}",
+    SIGNALEDI_API_KEY: "${SIGNALEDI_API_KEY}",
+    SIGNALEDI_BASE_URL: "${SIGNALEDI_BASE_URL}",
+    SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL: "${SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL}",
+    SIGNALEDI_MCP_ALLOW_PRODUCTION: "${SIGNALEDI_MCP_ALLOW_PRODUCTION}",
+  });
+  assert.equal(unset.profile, "docs");
+  assert.equal(unset.apiKey, undefined);
+  assert.equal(unset.baseUrl, undefined);
+  assert.equal(unset.allowCustomBaseUrl, false);
+  assert.equal(unset.allowProduction, false);
+
+  assert.throws(
+    () => resolveStartupFromEnv({
+      SIGNALEDI_MCP_PROFILE: "sandbox",
+      SIGNALEDI_API_KEY: "${SIGNALEDI_API_KEY}",
+      SIGNALEDI_BASE_URL: "http://localhost:3100",
+      SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL: "1",
+    }),
+    /requires SIGNALEDI_API_KEY/,
+  );
+});
+
+await test("Cursor marketplace plugin packaging is submission-ready", () => {
+  const pkg = JSON.parse(readPackageFile("package.json"));
+  const plugin = JSON.parse(readPackageFile(".cursor-plugin/plugin.json"));
+  const mcp = JSON.parse(readPackageFile("mcp.json"));
+  const skill = readPackageFile("skills/signaledi-mcp-profiles/SKILL.md");
+  const logo = readPackageFile("assets/logo.svg");
+  const readme = readPackageFile("README.md");
+
+  assert.match(plugin.name, /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
+  assert.equal(plugin.name, "signaledi");
+  assert.equal(plugin.author?.name, "SignalEDI");
+  assert.equal(plugin.homepage, "https://signaledi.com/developers/pricing#mcp");
+  assert.equal(plugin.repository, "https://github.com/SignalEDI/mcp-server");
+  assert.equal(plugin.license, "MIT");
+  assert.equal(plugin.logo, "assets/logo.svg");
+  for (const keyword of ["edi", "x12", "mcp", "cursor"]) {
+    assert.ok(plugin.keywords?.includes(keyword), `missing keyword ${keyword}`);
+  }
+
+  assert.equal(plugin.variables?.type, "object");
+  const variableNames = Object.keys(plugin.variables?.properties || {});
+  for (const name of [
+    "SIGNALEDI_MCP_PROFILE",
+    "SIGNALEDI_API_KEY",
+    "SIGNALEDI_BASE_URL",
+    "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL",
+    "SIGNALEDI_MCP_ALLOW_PRODUCTION",
+  ]) {
+    assert.ok(variableNames.includes(name), `plugin.json missing variable ${name}`);
+  }
+  assert.equal(plugin.variables.properties.SIGNALEDI_MCP_PROFILE.default, "docs");
+  assert.deepEqual(plugin.variables.properties.SIGNALEDI_MCP_PROFILE.enum, ["docs", "sandbox", "production"]);
+
+  const server = mcp.mcpServers?.signaledi;
+  assert.equal(server?.command, "npx");
+  assert.deepEqual(server?.args, ["-y", `@signaledi/mcp-server@${pkg.version}`]);
+  assert.equal(server?.env?.SIGNALEDI_MCP_PROFILE, "${SIGNALEDI_MCP_PROFILE}");
+  assert.equal(server?.env?.SIGNALEDI_API_KEY, "${SIGNALEDI_API_KEY}");
+  assert.equal(server?.env?.SIGNALEDI_BASE_URL, "${SIGNALEDI_BASE_URL}");
+  assert.equal(server?.env?.SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL, "${SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL}");
+  assert.equal(server?.env?.SIGNALEDI_MCP_ALLOW_PRODUCTION, "${SIGNALEDI_MCP_ALLOW_PRODUCTION}");
+
+  const serializedPlugin = JSON.stringify(plugin) + JSON.stringify(mcp) + skill + logo;
+  assert.equal(/sk_live|sk_test|Bearer [A-Za-z0-9]|api[_-]?key\s*[:=]\s*['\"][^$'{]/i.test(serializedPlugin), false);
+  assert.match(logo, /<svg[\s\S]*<\/svg>/);
+  assert.match(skill, /^---\nname:\s*signaledi-mcp-profiles\n/m);
+  assert.match(skill, /^description:\s*.+/m);
+  assert.match(readme, /## Cursor Marketplace/);
+  assert.match(readme, /cursor\.com\/marketplace\/publish/);
+  assert.match(readme, /marketplace-publisher-terms/);
+});
+
 // ├óΓÇ¥Γé¼├óΓÇ¥Γé¼ Tool handlers (via callTool) ├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼├óΓÇ¥Γé¼
 
 function connectionEnvironmentFixture(overrides = {}) {

@@ -204,6 +204,33 @@ Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
 }
 ```
 
+### Cursor Marketplace
+
+This repository is also packaged as a Cursor Plugin for the official Marketplace. The plugin launches the same npm package over stdio — there is no parallel MCP implementation.
+
+| | |
+| --- | --- |
+| Plugin manifest | `.cursor-plugin/plugin.json` (`name`: `signaledi`) |
+| MCP config | `mcp.json` → `npx -y @signaledi/mcp-server@0.5.0` |
+| Logo | `assets/logo.svg` |
+| Skill | `skills/signaledi-mcp-profiles/` |
+
+**Install (after listing):** open Customize → Marketplace, search for SignalEDI, and install. Or submit/review at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) once the public Git repo is ready.
+
+**Configure:** set plugin variables under Plugins → Configure (no secrets in the repo or prompts):
+
+| Variable | Typical value |
+| --- | --- |
+| `SIGNALEDI_MCP_PROFILE` | `docs` (default), `sandbox`, or `production` |
+| `SIGNALEDI_API_KEY` | Least-privilege workspace key (ignored by `docs`) |
+| `SIGNALEDI_BASE_URL` | Verified non-production origin, or exactly `https://signaledi.com` for production |
+| `SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL` | `1` only for verified custom hosts |
+| `SIGNALEDI_MCP_ALLOW_PRODUCTION` | `1` only with the production profile and canonical base |
+
+Plugin `mcp.json` uses `${VAR}` placeholders that match those dashboard variables (not the manual `${env:NAME}` syntax used in project `.cursor/mcp.json`). Unset placeholders stay fail-closed on the keyless `docs` profile.
+
+Publishing is subject to the [Cursor Marketplace Publisher Terms](https://cursor.com/marketplace-publisher-terms). Marketplace plugins must be open source and pass manual review; see [marketplace security](https://cursor.com/help/security-and-privacy/marketplace-security).
+
 VS Code uses `.vscode/mcp.json`, a top-level `servers` object, and a password input for secrets:
 
 ```json
