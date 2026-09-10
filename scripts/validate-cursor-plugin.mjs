@@ -33,11 +33,18 @@ check(existsSync(join(root, skillPath)), `missing ${skillPath}`);
 check(existsSync(join(root, logoPath)), `missing ${logoPath}`);
 check(plugin.name === "signaledi", "plugin name must be signaledi");
 check(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(plugin.name), "plugin name must be kebab-case");
+check(plugin.version === pkg.version, "plugin.json version must match package.json");
 check(plugin.author?.name === "SignalEDI", "plugin author must be SignalEDI");
 check(plugin.homepage === "https://signaledi.com/developers/pricing#mcp", "plugin homepage mismatch");
+check(plugin.repository === "https://github.com/SignalEDI/mcp-server", "plugin repository must be the public GitHub URL");
+check(plugin.license === "MIT", "plugin license must be MIT");
 check(plugin.logo === "assets/logo.svg", "plugin logo must be a relative assets path");
 check(!String(plugin.logo).includes("..") && !String(plugin.logo).startsWith("/"), "logo path must be relative without traversal");
+check(typeof plugin.skills === "string" && !plugin.skills.includes("..") && !plugin.skills.startsWith("/"), "skills path must be relative without traversal");
 check(plugin.mcpServers === "./mcp.json" || plugin.mcpServers == null, "mcpServers path must be ./mcp.json or omitted for default discovery");
+for (const pathField of [plugin.logo, plugin.skills, plugin.mcpServers].filter(Boolean)) {
+  check(!String(pathField).includes("..") && !String(pathField).startsWith("/"), `manifest path must be relative: ${pathField}`);
+}
 
 const requiredVars = [
   "SIGNALEDI_MCP_PROFILE",

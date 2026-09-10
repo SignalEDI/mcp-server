@@ -728,11 +728,14 @@ await test("Cursor marketplace plugin packaging is submission-ready", () => {
 
   assert.match(plugin.name, /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
   assert.equal(plugin.name, "signaledi");
+  assert.equal(plugin.version, pkg.version);
   assert.equal(plugin.author?.name, "SignalEDI");
   assert.equal(plugin.homepage, "https://signaledi.com/developers/pricing#mcp");
   assert.equal(plugin.repository, "https://github.com/SignalEDI/mcp-server");
   assert.equal(plugin.license, "MIT");
   assert.equal(plugin.logo, "assets/logo.svg");
+  assert.equal(plugin.mcpServers, "./mcp.json");
+  assert.ok(plugin.skills === "./skills/" || plugin.skills === "skills/");
   for (const keyword of ["edi", "x12", "mcp", "cursor"]) {
     assert.ok(plugin.keywords?.includes(keyword), `missing keyword ${keyword}`);
   }
