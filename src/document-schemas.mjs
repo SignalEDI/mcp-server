@@ -57,7 +57,7 @@ const DOCUMENT_SCHEMAS = Object.freeze({
     requiredSegments: ["BAK", "PO1"],
     commonSegments: ["REF", "DTM", "N1", "N3", "N4", "ACK", "CTT"],
     keyFields: [
-      { field: "acknowledgmentType", x12: "BAK01", required: true },
+      { field: "acknowledgmentType", x12: "BAK02", required: true },
       { field: "purchaseOrderNumber", x12: "BAK03", required: true },
       { field: "purchaseOrderDate", x12: "BAK04", required: true },
       { field: "lineNumber", x12: "PO101", required: true },
@@ -106,9 +106,10 @@ const DOCUMENT_SCHEMAS = Object.freeze({
     commonSegments: ["C3", "G62", "R3", "LX", "L5", "L0", "L1", "L3"],
     keyFields: [
       { field: "invoiceNumber", x12: "B302", required: true },
-      { field: "scac", x12: "B303", required: true },
-      { field: "shipmentIdentification", x12: "B307", required: false },
-      { field: "netAmountDue", x12: "L301", required: false },
+      { field: "shipmentIdentification", x12: "B303", required: true },
+      { field: "invoiceDate", x12: "B306", required: true },
+      { field: "netAmountDue", x12: "B307", required: true },
+      { field: "scac", x12: "B311", required: true },
     ],
   },
   "211": {
@@ -120,9 +121,9 @@ const DOCUMENT_SCHEMAS = Object.freeze({
     requiredSegments: ["BOL", "N1"],
     commonSegments: ["G62", "L11", "AT5", "LX", "L5", "L0", "L3"],
     keyFields: [
-      { field: "bolNumber", x12: "BOL02", required: true },
       { field: "scac", x12: "BOL01", required: true },
-      { field: "shipmentMethodOfPayment", x12: "BOL03", required: false },
+      { field: "shipmentMethodOfPayment", x12: "BOL02", required: false },
+      { field: "bolNumber", x12: "BOL03", required: true },
     ],
   },
   "212": {
@@ -188,11 +189,12 @@ const DOCUMENT_SCHEMAS = Object.freeze({
     capability: "baseline",
     fixture: true,
     direction: "commonly outbound from a shipper or 3PL",
-    requiredSegments: ["BGN", "N1", "HL"],
+    requiredSegments: ["BX", "N1", "HL"],
     commonSegments: ["N9", "G62", "NTE", "L0", "L5", "MAN"],
     keyFields: [
-      { field: "purposeCode", x12: "BGN01", required: true },
-      { field: "referenceIdentification", x12: "BGN02", required: true },
+      { field: "purposeCode", x12: "BX01", required: true },
+      { field: "transportationMethod", x12: "BX02", required: true },
+      { field: "shipmentMethodOfPayment", x12: "BX03", required: true },
       { field: "hierarchicalId", x12: "HL01", required: true },
     ],
   },
@@ -261,8 +263,8 @@ const DOCUMENT_SCHEMAS = Object.freeze({
     requiredSegments: ["W15", "N1", "W19"],
     commonSegments: ["G62", "N9", "W20", "G69", "NTE"],
     keyFields: [
-      { field: "reportingCode", x12: "W1501", required: true },
-      { field: "date", x12: "W1502", required: true },
+      { field: "date", x12: "W1501", required: true },
+      { field: "adjustmentNumber", x12: "W1502", required: false },
       { field: "adjustmentReason", x12: "W1901", required: false },
     ],
   },

@@ -71,7 +71,7 @@ export function renderTestDocument(type, overrides = {}) {
       ]);
     case "204":
       return doc("SM", "5", [
-        "B2**SYNTH*PP**LOAD-DEMO-001~",
+        "B2**SYNTH**LOAD-DEMO-001**PP~",
         "B2A*00*LT~",
         "L11*REF-DEMO-001*CN~",
         "S5*1*CL~",
@@ -79,7 +79,7 @@ export function renderTestDocument(type, overrides = {}) {
       ]);
     case "210":
       return doc("IM", "6", [
-        `B3**INV-FGT-001*SYNTH*PP*${date}**10000~`,
+        `B3**INV-FGT-001*SHIP-DEMO-001*PP**${date}*10000****SYNTH~`,
         "N1*SH*SYNTH SHIPPER*92*SYNSHP01~",
         "LX*1~",
         "L5*1*SYNTHETIC FREIGHT~",
@@ -87,7 +87,7 @@ export function renderTestDocument(type, overrides = {}) {
       ]);
     case "211":
       return doc("BL", "7", [
-        "BOL*SYNTH*BOL-DEMO-001*PP~",
+        "BOL*SYNTH*PP*BOL-DEMO-001~",
         "N1*SH*SYNTH SHIPPER*92*SYNSHP01~",
         "N1*CN*SYNTH CONSIGNEE*92*SYNCON01~",
         "LX*1~",
@@ -96,7 +96,7 @@ export function renderTestDocument(type, overrides = {}) {
     case "212":
       return doc("TM", "8", [
         "ATA*SYNTH*MANIFEST-DEMO-001~",
-        "AT7*X1*NS***20260101*1200~",
+        `AT7*X1*NS***${date}*1200~`,
         "N1*SF*SYNTH FACILITY*92*SYNFAC01~",
         "LX*1~",
         "OID*ORDER-DEMO-001~",
@@ -127,7 +127,7 @@ export function renderTestDocument(type, overrides = {}) {
       ]);
     case "858":
       return doc("SI", "12", [
-        `BGN*00*SHIPINFO-001*${date}~`,
+        "BX*00*M*PP*SHIPINFO-001~",
         "N1*SH*SYNTH SHIPPER*92*SYNSHP01~",
         "HL*1**S~",
         "N9*BN*BILL-DEMO-001~",
@@ -166,7 +166,7 @@ export function renderTestDocument(type, overrides = {}) {
       ]);
     case "947":
       return doc("AW", "17", [
-        `W15*F*${date}~`,
+        `W15*${date}*ADJ-DEMO-001*ADJ-DEMO-001~`,
         "N1*WH*SYNTH WAREHOUSE*92*SYNWH01~",
         "W19*AJ*12*EA**VN*SKU-DEMO-100~",
         "W20*12*EA~",
