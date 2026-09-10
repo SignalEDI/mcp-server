@@ -58,6 +58,7 @@ try {
   cpSync(iconSrc, join(staging, "icon.png"));
   cpSync(join(root, "package.json"), join(staging, "package.json"));
   cpSync(join(root, "package-lock.json"), join(staging, "package-lock.json"));
+  cpSync(join(root, "server.json"), join(staging, "server.json"));
   cpSync(join(root, "src"), join(staging, "src"), { recursive: true });
   cpSync(join(root, "LICENSE"), join(staging, "LICENSE"));
   cpSync(join(root, "README.md"), join(staging, "README.md"));

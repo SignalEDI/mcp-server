@@ -91,6 +91,7 @@ check(readme.includes("@anthropic-ai/mcpb") || readme.includes("mcpb pack"), "RE
 
 const buildScript = readText("scripts/build-mcpb.mjs");
 check(buildScript.includes("mcpb pack") || buildScript.includes("@anthropic-ai/mcpb"), "build-mcpb must invoke mcpb pack");
+check(buildScript.includes("server.json"), "build-mcpb must stage server.json (runtime metadata)");
 check(buildScript.includes("signaledi") || buildScript.includes("SignalEDI"), "build-mcpb must brand SignalEDI");
 check(!/challan116/i.test(buildScript), "build-mcpb must not mention challan116");
 

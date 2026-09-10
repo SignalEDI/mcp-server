@@ -15,7 +15,7 @@ Artifact: `dist/signaledi-mcp-server-<version>.mcpb`
 
 What the build does:
 
-1. Stages `package.json`, `package-lock.json`, `src/`, `LICENSE`, `README.md`, and `mcpb/manifest.json` / `mcpb/icon.png`
+1. Stages `package.json`, `package-lock.json`, `server.json`, `src/`, `LICENSE`, `README.md`, and `mcpb/manifest.json` / `mcpb/icon.png`
 2. Runs `npm ci --omit=dev` inside the staging directory (bundles `@modelcontextprotocol/sdk`)
 3. Invokes `@anthropic-ai/mcpb` `pack` to produce the `.mcpb` zip
 
