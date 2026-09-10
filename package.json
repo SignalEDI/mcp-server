@@ -6,6 +6,10 @@
   "license": "MIT",
   "author": "SignalEDI",
   "homepage": "https://signaledi.com/developers/pricing#mcp",
+  "bugs": {
+    "url": "https://github.com/SignalEDI/mcp-server/issues",
+    "email": "Support@signaledi.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/SignalEDI/mcp-server.git"

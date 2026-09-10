@@ -8,6 +8,9 @@ The package is an uplift of SignalEDI's existing MCP adapter. Version 0.5 adds p
 | --- | --- |
 | Package | `@signaledi/mcp-server` |
 | MCP Registry | `io.github.SignalEDI/mcp-server` |
+| Maintainer | SignalEDI GitHub organization (`SignalEDI`) — owns npm, MCP Registry, and Glama listing metadata |
+| Support | [Support@signaledi.com](mailto:Support@signaledi.com) · [signaledi.com](https://signaledi.com) |
+| Repository | [github.com/SignalEDI/mcp-server](https://github.com/SignalEDI/mcp-server) |
 | Transport | stdio |
 | Runtime | Node 22+ |
 | Runtime dependency | `@modelcontextprotocol/sdk` 1.30.0 (2025 protocol generation) |
@@ -333,3 +336,5 @@ MCP client
 ```
 
 The standalone GitHub repository `SignalEDI/mcp-server` is the canonical source and sole automated npm/MCP Registry publish authority. The private `SignalEDI/platform` repository may retain a synchronized validation snapshot for its hosted API/backend contracts; see `MIRROR.md`. All examples are synthetic and must remain free of customer, health, financial, and credential data.
+
+Public package identity is SignalEDI only: author/publisher metadata, Cursor marketplace plugin author, and the Glama `glama.json` `maintainers` entry use the SignalEDI GitHub organization handle (Glama's schema requires GitHub username strings; there is no separate SignalEDI bot user). Customer support: Support@signaledi.com.
