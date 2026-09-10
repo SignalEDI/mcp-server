@@ -43,6 +43,36 @@ try {
   assert.ok(tools.tools.some((tool) => tool.name === "search_docs"));
   const expectedCounts = { docs: 7, sandbox: 28, production: 21 };
   assert.equal(tools.tools.length, expectedCounts[childEnv.SIGNALEDI_MCP_PROFILE]);
+  const toolNames = tools.tools.map((tool) => tool.name).sort();
+  if (childEnv.SIGNALEDI_MCP_PROFILE === "docs") {
+    assert.deepEqual(toolNames, [
+      "explain_edi_error",
+      "generate_integration_example",
+      "generate_test_document",
+      "get_document_schema",
+      "lookup_element_definition",
+      "lookup_x12",
+      "search_docs",
+    ]);
+  }
+  if (childEnv.SIGNALEDI_MCP_PROFILE === "sandbox") {
+    assert.ok(toolNames.includes("parse_edi"));
+    assert.ok(toolNames.includes("validate_edi"));
+    assert.ok(toolNames.includes("send_outbound_document"));
+    assert.ok(toolNames.includes("quickbooks_sync_to_qbo"));
+    assert.ok(toolNames.includes("quickbooks_list_entities"));
+    assert.ok(toolNames.includes("list_connections"));
+  }
+  if (childEnv.SIGNALEDI_MCP_PROFILE === "production") {
+    assert.ok(toolNames.includes("send_outbound_document"));
+    assert.ok(toolNames.includes("list_connections"));
+    assert.ok(toolNames.includes("test_connection"));
+    assert.equal(toolNames.includes("parse_edi"), false);
+    assert.equal(toolNames.includes("validate_edi"), false);
+    assert.equal(toolNames.includes("quickbooks_sync_to_qbo"), false);
+    assert.equal(toolNames.includes("quickbooks_disconnect"), false);
+    assert.equal(toolNames.includes("quickbooks_list_entities"), false);
+  }
   const parseTool = tools.tools.find((tool) => tool.name === "parse_edi");
   if (childEnv.SIGNALEDI_MCP_PROFILE === "sandbox") {
     assert.ok(parseTool);
@@ -180,6 +210,16 @@ try {
     () => client.getPrompt({ name: "scaffold-integration", arguments: {} }),
     (error) => error?.code === -32602 && /documentType is required/.test(error.message),
   );
+  await assert.rejects(
+    () => client.getPrompt({ name: "scaffold-integration", arguments: { documentType: "850x" } }),
+    (error) => error?.code === -32602 && /at most 3 characters/.test(error.message),
+  );
+  if (childEnv.SIGNALEDI_MCP_PROFILE === "docs") {
+    await assert.rejects(
+      () => client.callTool({ name: "get_document_schema", arguments: { transactionSet: "EDIFACT" } }),
+      (error) => error?.code === -32602 || /INVALID_TOOL_ARGUMENTS|enum|invalid/i.test(String(error?.message || "")),
+    );
+  }
 
   console.log(`stdio smoke passed: ${tools.tools.length} ${childEnv.SIGNALEDI_MCP_PROFILE} tools, ${resources.resources.length} resources, ${templates.resourceTemplates.length} template, ${prompts.prompts.length} prompts`);
 } finally {
