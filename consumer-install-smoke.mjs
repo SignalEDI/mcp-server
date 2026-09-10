@@ -167,12 +167,21 @@ try {
     assert.ok(tools.tools.some((tool) => tool.name === "search_docs"));
     assert.ok(!tools.tools.some((tool) => tool.name === "parse_edi"));
     assert.ok(!tools.tools.some((tool) => tool.name === "send_outbound_document"));
+    assert.equal(tools.tools.length, 7);
     const schema = await client.callTool({
       name: "get_document_schema",
       arguments: { transactionSet: "850" },
     });
     assert.equal(schema.isError, undefined);
     assert.equal(schema.structuredContent.transactionSet, "850");
+    assert.equal(schema.structuredContent.capability, "baseline");
+    assert.match(schema.structuredContent.limitation, /not a trading-partner implementation guide/i);
+    const refused = await client.callTool({
+      name: "get_document_schema",
+      arguments: { transactionSet: "EDIFACT" },
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(refused.structuredContent.error, "OUT_OF_SCOPE_FORMAT");
   } finally {
     await client.close();
   }

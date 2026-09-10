@@ -13,6 +13,10 @@ import {
 } from "./codegen.mjs";
 import { MCP_EDI_CONTENT_MAX_BYTES } from "./client.mjs";
 import {
+  LOCAL_DOCUMENT_SET_CODES,
+  getDocumentSchema,
+} from "./document-schemas.mjs";
+import {
   CONNECTION_CREATE_OUTPUT_SCHEMA,
   CONNECTION_DIRECTIONS,
   CONNECTION_ENVIRONMENTS,
@@ -28,9 +32,8 @@ import {
   projectConnectionWorkspaceResponse,
 } from "./connections.mjs";
 import { searchDeveloperDocs } from "./developer-docs.mjs";
-import { getDocumentSchema } from "./document-schemas.mjs";
 import { explainEdiError, lookupX12 } from "./x12-dictionary.mjs";
-import { renderTestDocument } from "./templates.mjs";
+import { localFixtureCapability, renderTestDocument } from "./templates.mjs";
 import {
   QBO_EXPORT_OUTPUT_SCHEMA,
   QBO_STATUS_OUTPUT_SCHEMA,
@@ -150,16 +153,31 @@ export const TOOLS = [
     name: "get_document_schema",
     localOnly: true,
     description:
-      "Get a public X12 starter schema for 850, 810, 856, or 837 Professional (005010X222A1): baseline envelope, common segments, and key fields. This is explicitly not a trading-partner implementation guide.",
+      "Get a public X12 starter schema for the local inventory (850/810/856 baseline, 837 Professional partial). Returns an honest capability label and is explicitly not a trading-partner implementation guide. Refuses EDIFACT, HL7, and unknown sets.",
     inputSchema: {
       type: "object",
       properties: {
-        transactionSet: { type: "string", enum: ["850", "810", "856", "837"], description: "X12 transaction set code. The 837 starter is Professional 005010X222A1 only." },
+        transactionSet: {
+          type: "string",
+          minLength: 2,
+          maxLength: 16,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9/_-]{0,15}$",
+          description: `Local starter codes: ${LOCAL_DOCUMENT_SET_CODES.join(", ")}. 837 means Professional 005010X222A1 only.`,
+        },
       },
       required: ["transactionSet"],
       additionalProperties: false,
     },
-    handler: async (_client, args) => ok(getDocumentSchema(args.transactionSet)),
+    handler: async (_client, args) => {
+      try {
+        return ok(getDocumentSchema(requireString(args, "transactionSet")));
+      } catch (error) {
+        if (error?.code === "OUT_OF_SCOPE_FORMAT" || error?.code === "UNSUPPORTED_TRANSACTION_SET" || error?.code === "DOCUMENT_SCHEMA_NOT_FOUND") {
+          throw Object.assign(new ToolInputError(error.message, [`$.transactionSet ${error.code}`]), { code: error.code });
+        }
+        throw error;
+      }
+    },
   },
   {
     name: "generate_integration_example",
@@ -802,11 +820,17 @@ export const TOOLS = [
     name: "generate_test_document",
     localOnly: true,
     description:
-      "Render a synthetic X12 sample for 850, 810, 856, or 837 Professional (005010X222A1). controlNumber and the transaction's primary date apply to every fixture; poNumber applies only to 850 and 810. Local only; works in the docs profile.",
+      "Render a synthetic X12 sample for the local inventory (850/810/856 baseline, 837 Professional partial). Returns an honest capability label. controlNumber and the transaction's primary date apply to every fixture; poNumber applies only to 850 and 810. Refuses EDIFACT, HL7, and unknown sets. Local only; works in the docs profile.",
     inputSchema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["850", "810", "856", "837"], description: "Transaction set to generate. 837 means Professional 005010X222A1 only." },
+        type: {
+          type: "string",
+          minLength: 2,
+          maxLength: 16,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9/_-]{0,15}$",
+          description: `Local fixture codes: ${LOCAL_DOCUMENT_SET_CODES.join(", ")}. 837 means Professional 005010X222A1 only.`,
+        },
         overrides: {
           type: "object",
           properties: {
@@ -822,11 +846,15 @@ export const TOOLS = [
     },
     handler: async (_client, args) => {
       const type = requireString(args, "type");
-      if (!["850", "810", "856", "837"].includes(type)) {
-        throw invalidArguments('type must be one of "850", "810", "856", "837".', ["$.type is unsupported"]);
+      try {
+        const content = renderTestDocument(type, args?.overrides || {});
+        return ok({ type, capability: localFixtureCapability(type), content });
+      } catch (error) {
+        if (error?.code === "OUT_OF_SCOPE_FORMAT" || error?.code === "UNSUPPORTED_TRANSACTION_SET") {
+          throw Object.assign(new ToolInputError(error.message, [`$.type ${error.code}`]), { code: error.code });
+        }
+        throw error;
       }
-      const content = renderTestDocument(type, args?.overrides || {});
-      return ok({ type, content });
     },
   },
   {
@@ -1043,8 +1071,10 @@ const OUTPUT_SCHEMAS = Object.freeze({
   get_document_schema: {
     type: "object",
     properties: {
-      transactionSet: { type: "string", enum: ["850", "810", "856", "837"] },
+      transactionSet: { type: "string", enum: [...LOCAL_DOCUMENT_SET_CODES] },
       name: { type: "string" },
+      capability: { type: "string", enum: ["baseline", "partial"] },
+      fixture: { type: "boolean", const: true },
       variant: { type: "string" },
       implementationGuide: { type: "string" },
       direction: { type: "string" },
@@ -1055,9 +1085,21 @@ const OUTPUT_SCHEMAS = Object.freeze({
       authority: { type: "string" },
       limitation: { type: "string" },
       sourceUri: { type: "string" },
+      error: { type: "string" },
+      message: { type: "string" },
+      tool: { type: "string" },
+      validationErrors: { type: "array", items: { type: "string" } },
+      requestId: { type: "string" },
     },
-    required: ["transactionSet", "name", "direction", "requiredSegments", "commonSegments", "keyFields", "envelope", "authority", "limitation", "sourceUri"],
-    additionalProperties: false,
+    additionalProperties: true,
+    anyOf: [
+      {
+        required: ["transactionSet", "name", "capability", "fixture", "direction", "requiredSegments", "commonSegments", "keyFields", "envelope", "authority", "limitation", "sourceUri"],
+      },
+      {
+        required: ["error", "message"],
+      },
+    ],
   },
   generate_integration_example: {
     type: "object",
@@ -1193,9 +1235,21 @@ const OUTPUT_SCHEMAS = Object.freeze({
   },
   generate_test_document: {
     type: "object",
-    properties: { type: { type: "string", enum: ["850", "810", "856", "837"] }, content: { type: "string" } },
-    required: ["type", "content"],
-    additionalProperties: false,
+    properties: {
+      type: { type: "string", enum: [...LOCAL_DOCUMENT_SET_CODES] },
+      capability: { type: "string", enum: ["baseline", "partial"] },
+      content: { type: "string" },
+      error: { type: "string" },
+      message: { type: "string" },
+      tool: { type: "string" },
+      validationErrors: { type: "array", items: { type: "string" } },
+      requestId: { type: "string" },
+    },
+    additionalProperties: true,
+    anyOf: [
+      { required: ["type", "capability", "content"] },
+      { required: ["error", "message"] },
+    ],
   },
   lookup_x12: {
     type: "object",
