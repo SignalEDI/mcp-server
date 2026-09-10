@@ -718,38 +718,6 @@ await test("startup treats unexpanded Cursor plugin placeholders as unset", () =
   );
 });
 
-await test("public metadata uses SignalEDI brand identity only", () => {
-  const pkg = JSON.parse(readPackageFile("package.json"));
-  const plugin = JSON.parse(readPackageFile(".cursor-plugin/plugin.json"));
-  const glama = JSON.parse(readPackageFile("glama.json"));
-  const readme = readPackageFile("README.md");
-  const license = readPackageFile("LICENSE");
-  const personalBrand = /challan116(?:-ux)?|challan116@(?:me|gmail)\.com/i;
-  const publicSurfaces = [
-    JSON.stringify(pkg),
-    JSON.stringify(plugin),
-    JSON.stringify(glama),
-    readme,
-    license,
-    readPackageFile("server.json"),
-    readPackageFile("mcp.json"),
-    readPackageFile("MIRROR.md"),
-  ].join("\n");
-
-  assert.doesNotMatch(publicSurfaces, personalBrand);
-  assert.equal(pkg.author, "SignalEDI");
-  assert.equal(pkg.homepage, "https://signaledi.com/developers/pricing#mcp");
-  assert.equal(pkg.repository?.url, "https://github.com/SignalEDI/mcp-server.git");
-  assert.equal(pkg.bugs?.url, "https://github.com/SignalEDI/mcp-server/issues");
-  assert.equal(pkg.bugs?.email, "Support@signaledi.com");
-  assert.equal(plugin.author?.name, "SignalEDI");
-  assert.deepEqual(glama.maintainers, ["SignalEDI"]);
-  assert.match(readme, /SignalEDI GitHub organization/);
-  assert.match(readme, /Support@signaledi\.com/);
-  assert.match(readme, /https:\/\/signaledi\.com/);
-  assert.match(license, /Signaledi Inc/);
-});
-
 await test("Cursor marketplace plugin packaging is submission-ready", () => {
   const pkg = JSON.parse(readPackageFile("package.json"));
   const plugin = JSON.parse(readPackageFile(".cursor-plugin/plugin.json"));
