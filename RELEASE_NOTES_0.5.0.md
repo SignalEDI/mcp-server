@@ -58,25 +58,41 @@ Before publishing 0.5.0:
 
 ## Republish after failed `mcp-v0.5.0` (gate fix on main)
 
-Tag `mcp-v0.5.0` already exists and previously failed during main-resolution (`silent set -e read`). PR #5 fixed that gate on `main`. The publish workflow still requires `TAG_SHA == current GitHub main`, so a bare `gh run rerun` of the failed tag job is **not** enough once `main` has advanced.
+Tag `mcp-v0.5.0` already exists. Early failures were silent main-resolution under `set -e` (`read`/node fetch). PR #5 fixed that gate (`scripts/resolve-github-main.sh`).
 
-**Preferred (keep version 0.5.0; 0.5.0 never landed on npm):**
+### Proven status (2026-09-10)
 
-1. Confirm `main` includes the publish-gate fix (`scripts/resolve-github-main.sh`) and `package.json` / `server.json` still say `0.5.0`.
-2. Repo admin with protected-tag rights moves the existing tag to current main (do **not** invent a parallel tag name for 0.5.0):
+- Gate fix works: Actions run [34507766713](https://github.com/SignalEDI/mcp-server/actions/runs/34507766713) on tag tip `282bf6c` passed validation/pack and reached `npm publish`.
+- npm still failed: `PUT https://registry.npmjs.org/@signaledi%2fmcp-server` → **HTTP 404** (“could not be found or you do not have permission”). Latest on the registry remains **`0.4.0`**.
+- That 404 is an **npm trusted-publisher / OIDC permission** problem, not the GitHub main-resolution gate. Cutting `0.5.1` alone will hit the same error until OIDC is fixed.
+- This agent **cannot** move protected tag `mcp-v0.5.0` (`GH013: Cannot update this protected ref`).
+
+### Fix npm trusted publishing first
+
+On https://www.npmjs.com/package/@signaledi/mcp-server → **Settings → Trusted Publisher** (GitHub Actions):
+
+1. Repository: `SignalEDI/mcp-server`
+2. Workflow filename: `mcp-publish.yml` (exact)
+3. Environment: leave empty unless the workflow uses a named GitHub Environment
+4. Ensure the `@signaledi` org / package still allows publishing from that publisher (and that the package was not disconnected after the 0.4.0 publish)
+
+### Then re-fire 0.5.0 (preferred; never successfully published)
+
+1. Confirm `main` still has `package.json` / `server.json` version `0.5.0` and the gate fix.
+2. Repo admin with protected-tag rights moves the tag to **current** `main` (required: `TAG_SHA == MAIN_SHA`):
    ```bash
    git fetch origin main
    MAIN=$(git rev-parse origin/main)
    git tag -f mcp-v0.5.0 "$MAIN"
    git push --force origin refs/tags/mcp-v0.5.0
    ```
-3. Confirm Actions run **Publish stable MCP server release** for `mcp-v0.5.0` succeeds (npm trusted publish, then MCP Registry).
+3. Confirm Actions **Publish stable MCP server release** succeeds (npm trusted publish, then MCP Registry).
 4. Verify: `npm view @signaledi/mcp-server version` → `0.5.0`.
 
-**Fallback (avoid moving the protected tag): cut `0.5.1`**
+Do **not** expect `workflow_dispatch` — `mcp-publish.yml` only triggers on `mcp-v*` tag pushes. Re-running an old failed job against a tag that no longer equals `main` will fail the gate again.
+
+### Fallback after OIDC works: cut `0.5.1` (avoid moving protected tag)
 
 1. Bump `package.json`, `server.json`, and add `RELEASE_NOTES_0.5.1.md`; update marketplace `mcp.json` pin to `@signaledi/mcp-server@0.5.1`.
-2. Merge to `main`, then create protected tag `mcp-v0.5.1` on that tip (no retag of `mcp-v0.5.0`).
+2. Merge to `main`, then create protected tag `mcp-v0.5.1` on that tip (leave `mcp-v0.5.0` alone).
 3. Verify: `npm view @signaledi/mcp-server version` → `0.5.1`.
-
-Do **not** use `workflow_dispatch` today — `mcp-publish.yml` only triggers on `mcp-v*` tag pushes.
