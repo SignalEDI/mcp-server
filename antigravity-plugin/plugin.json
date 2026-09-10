@@ -1,0 +1,15 @@
+{
+  "name": "signaledi",
+  "displayName": "SignalEDI",
+  "version": "0.5.0",
+  "description": "X12 EDI developer MCP for docs, synthetic fixtures, governed connections, and profile-gated sandbox/production API workflows.",
+  "author": {
+    "name": "SignalEDI",
+    "email": "Support@signaledi.com",
+    "url": "https://signaledi.com"
+  },
+  "homepage": "https://signaledi.com/developers/pricing#mcp",
+  "repository": "https://github.com/SignalEDI/mcp-server",
+  "license": "MIT",
+  "keywords": ["edi", "x12", "mcp", "signaledi", "antigravity", "gemini"]
+}

@@ -1,0 +1,100 @@
+{
+  "manifest_version": "0.3",
+  "name": "signaledi",
+  "display_name": "SignalEDI",
+  "version": "0.5.0",
+  "description": "X12 EDI developer MCP for docs, synthetic fixtures, governed connections, and profile-gated sandbox/production API workflows.",
+  "long_description": "SignalEDI packages the same `@signaledi/mcp-server` stdio MCP adapter used across Claude Code, Cursor, and other hosts as a Claude Desktop MCP Bundle.\n\nDefault capability profile is keyless `docs` (public documentation resources and local synthetic helpers only). Authenticated `sandbox` and `production` profiles require explicit configuration and never activate from an API key alone.\n\nThis bundle runs locally over stdio. Tool arguments and results enter the MCP host and may enter model context—keep secrets in Desktop settings, not prompts. Review SignalEDI privacy and host data policies before enabling authenticated profiles.",
+  "author": {
+    "name": "SignalEDI",
+    "email": "Support@signaledi.com",
+    "url": "https://signaledi.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SignalEDI/mcp-server.git"
+  },
+  "homepage": "https://signaledi.com",
+  "documentation": "https://signaledi.com/developers/pricing#mcp",
+  "support": "https://github.com/SignalEDI/mcp-server/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "src/index.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/src/index.mjs"],
+      "env": {
+        "SIGNALEDI_API_KEY": "${user_config.SIGNALEDI_API_KEY}",
+        "SIGNALEDI_BASE_URL": "${user_config.SIGNALEDI_BASE_URL}",
+        "SIGNALEDI_MCP_PROFILE": "${user_config.SIGNALEDI_MCP_PROFILE}",
+        "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": "${user_config.SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL}",
+        "SIGNALEDI_MCP_ALLOW_PRODUCTION": "${user_config.SIGNALEDI_MCP_ALLOW_PRODUCTION}",
+        "SIGNALEDI_MCP_TELEMETRY": "${user_config.SIGNALEDI_MCP_TELEMETRY}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "keywords": [
+    "edi",
+    "x12",
+    "mcp",
+    "signaledi",
+    "850",
+    "810",
+    "856",
+    "quickbooks",
+    "claude-desktop"
+  ],
+  "license": "MIT",
+  "privacy_policies": ["https://signaledi.com/privacy"],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=22"
+    }
+  },
+  "user_config": {
+    "SIGNALEDI_MCP_PROFILE": {
+      "type": "string",
+      "title": "MCP profile",
+      "description": "Capability boundary: docs (keyless default), sandbox (verified non-production base + key), or production (fail-closed opt-in). A key alone never enables remote tools.",
+      "default": "docs",
+      "required": false
+    },
+    "SIGNALEDI_API_KEY": {
+      "type": "string",
+      "title": "API key",
+      "description": "Least-privilege workspace API key. Ignored by docs; required for sandbox and production. Never paste keys into prompts.",
+      "sensitive": true,
+      "required": false
+    },
+    "SIGNALEDI_BASE_URL": {
+      "type": "string",
+      "title": "API base URL",
+      "description": "Origin-only API base. Sandbox requires a verified non-production URL; production requires exactly https://signaledi.com.",
+      "required": false
+    },
+    "SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL": {
+      "type": "boolean",
+      "title": "Allow custom base URL",
+      "description": "Enable only after verifying a custom API host (localhost, preview, or sandbox).",
+      "default": false,
+      "required": false
+    },
+    "SIGNALEDI_MCP_ALLOW_PRODUCTION": {
+      "type": "boolean",
+      "title": "Allow production",
+      "description": "Independent production opt-in. Enable only with profile=production, canonical base, and a production-authorized key.",
+      "default": false,
+      "required": false
+    },
+    "SIGNALEDI_MCP_TELEMETRY": {
+      "type": "string",
+      "title": "Telemetry",
+      "description": "Controls redacted local stderr metrics. Leave empty for default (enabled); set to 0 to disable. Raw EDI, payloads, and API keys are never emitted.",
+      "required": false
+    }
+  }
+}
