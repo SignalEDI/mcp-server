@@ -56,9 +56,9 @@ All partner, QBO, EDI, validation, and error fields returned by tools are untrus
 | Tool | What it does |
 | --- | --- |
 | `search_docs` | Search the bundled public developer index and return MCP resource URIs with provenance. |
-| `get_document_schema` | Return a public baseline for X12 850, 810, 856, or 837 Professional (005010X222A1); explicitly not a partner implementation guide. |
+| `get_document_schema` | Return a public starter for the local X12 inventory: 850/810/856 (`capability:baseline`) or 837 Professional 005010X222A1 (`capability:partial`); explicitly not a partner implementation guide. |
 | `generate_integration_example` | Produce sandbox-safe cURL, Node.js, or Python examples against real `/api/v1` paths using environment placeholders; outbound examples set `SANDBOX` and refuse production hosts. |
-| `generate_test_document` | Render a synthetic X12 850, 810, 856, or 837 Professional (005010X222A1) fixture locally. |
+| `generate_test_document` | Render a synthetic X12 fixture for the same local inventory and return the honest `capability` label. |
 | `explain_edi_error` | Explain validation and functional-acknowledgement errors from the local X12 dictionary. |
 | `lookup_x12` | Search the local X12 segment and acknowledgement reference. |
 | `lookup_element_definition` | Tool-discovery alias for local X12 lookup. |

@@ -1,8 +1,9 @@
+import { LOCAL_DOCUMENT_SET_CODES } from "./document-schemas.mjs";
 import { renderTestDocument } from "./templates.mjs";
 
 const OPERATIONS = new Set(["parse", "validate", "send_outbound"]);
 const LANGUAGES = new Set(["curl", "node", "python"]);
-export const LOCAL_EXAMPLE_DOCUMENT_TYPES = Object.freeze(["850", "810", "856", "837"]);
+export const LOCAL_EXAMPLE_DOCUMENT_TYPES = LOCAL_DOCUMENT_SET_CODES;
 export const OUTBOUND_EXAMPLE_DOCUMENT_TYPES = Object.freeze(["850", "810", "856"]);
 
 const OUTBOUND_PAYLOADS = Object.freeze({

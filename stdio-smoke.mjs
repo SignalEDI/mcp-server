@@ -97,7 +97,15 @@ try {
   }
   assert.ok(tools.tools.every((tool) => tool.inputSchema?.type === "object"));
   assert.ok(tools.tools.every((tool) => tool.outputSchema?.type === "object"));
-  assert.ok(tools.tools.every((tool) => Array.isArray(tool.outputSchema.required) && tool.outputSchema.required.length > 0));
+  assert.ok(tools.tools.every((tool) => {
+    if (Array.isArray(tool.outputSchema?.anyOf)) {
+      return tool.outputSchema.anyOf.every((branch) => Array.isArray(branch.required) && branch.required.length > 0);
+    }
+    if (Array.isArray(tool.outputSchema?.oneOf)) {
+      return tool.outputSchema.oneOf.every((branch) => Array.isArray(branch.required) && branch.required.length > 0);
+    }
+    return Array.isArray(tool.outputSchema.required) && tool.outputSchema.required.length > 0;
+  }));
   const configureConnection = tools.tools.find((tool) => tool.name === "configure_connection");
   if (["sandbox", "production"].includes(childEnv.SIGNALEDI_MCP_PROFILE)) {
     assert.ok(configureConnection);
@@ -215,10 +223,16 @@ try {
     (error) => error?.code === -32602 && /at most 3 characters/.test(error.message),
   );
   if (childEnv.SIGNALEDI_MCP_PROFILE === "docs") {
-    await assert.rejects(
-      () => client.callTool({ name: "get_document_schema", arguments: { transactionSet: "EDIFACT" } }),
-      (error) => error?.code === -32602 || /INVALID_TOOL_ARGUMENTS|enum|invalid/i.test(String(error?.message || "")),
-    );
+    const edifact = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "EDIFACT" } });
+    assert.equal(edifact.isError, true);
+    assert.equal(edifact.structuredContent.error, "OUT_OF_SCOPE_FORMAT");
+    const unknown = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "855" } });
+    assert.equal(unknown.isError, true);
+    assert.equal(unknown.structuredContent.error, "UNSUPPORTED_TRANSACTION_SET");
+    const baseline = await client.callTool({ name: "get_document_schema", arguments: { transactionSet: "850" } });
+    assert.equal(baseline.structuredContent.capability, "baseline");
+    const partial = await client.callTool({ name: "generate_test_document", arguments: { type: "837" } });
+    assert.equal(partial.structuredContent.capability, "partial");
   }
 
   console.log(`stdio smoke passed: ${tools.tools.length} ${childEnv.SIGNALEDI_MCP_PROFILE} tools, ${resources.resources.length} resources, ${templates.resourceTemplates.length} template, ${prompts.prompts.length} prompts`);

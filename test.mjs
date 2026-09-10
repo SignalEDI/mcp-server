@@ -556,7 +556,13 @@ await test("every tool publishes an operation-specific output contract", () => {
   for (const tool of TOOLS) {
     assert.equal(tool.outputSchema.type, "object", `${tool.name} output must be an object`);
     assert.ok(Object.keys(tool.outputSchema.properties || {}).length > 0, `${tool.name} output needs named properties`);
-    assert.ok(Array.isArray(tool.outputSchema.required) && tool.outputSchema.required.length > 0, `${tool.name} output needs required fields`);
+    if (Array.isArray(tool.outputSchema.anyOf)) {
+      assert.ok(tool.outputSchema.anyOf.every((branch) => Array.isArray(branch.required) && branch.required.length > 0), `${tool.name} anyOf needs required fields`);
+    } else if (Array.isArray(tool.outputSchema.oneOf)) {
+      assert.ok(tool.outputSchema.oneOf.every((branch) => Array.isArray(branch.required) && branch.required.length > 0), `${tool.name} oneOf needs required fields`);
+    } else {
+      assert.ok(Array.isArray(tool.outputSchema.required) && tool.outputSchema.required.length > 0, `${tool.name} output needs required fields`);
+    }
     assert.notDeepEqual(tool.outputSchema, { type: "object", additionalProperties: true });
     serialized.add(JSON.stringify(tool.outputSchema));
   }
@@ -567,6 +573,10 @@ await test("every tool publishes an operation-specific output contract", () => {
   assert.ok(getTool("quickbooks_sync_to_qbo").outputSchema.required.includes("idempotentReplay"));
   assert.equal(getTool("quickbooks_export_to_edi").outputSchema.oneOf.length, 3);
   assert.ok(!getTool("quickbooks_export_to_edi").outputSchema.required.includes("idempotentReplay"));
+  assert.equal(getTool("get_document_schema").outputSchema.anyOf.length, 2);
+  assert.equal(getTool("generate_test_document").outputSchema.anyOf.length, 2);
+  assert.ok(getTool("get_document_schema").outputSchema.properties.capability);
+  assert.ok(getTool("generate_test_document").outputSchema.properties.capability);
 });
 
 await test("tool capability metadata matches route-level authorization", () => {
@@ -1484,11 +1494,13 @@ await test("public developer tools return sourced schemas, docs, and code", asyn
   const client = stubClient({ profile: "docs" });
   const schema = await callTool(client, "get_document_schema", { transactionSet: "850" });
   assert.equal(schema.structuredContent.transactionSet, "850");
+  assert.equal(schema.structuredContent.capability, "baseline");
   assert.equal(schema.structuredContent.partnerSpecific, undefined);
   assert.match(schema.structuredContent.limitation, /not a trading-partner implementation guide/i);
 
   const claim = await callTool(client, "get_document_schema", { transactionSet: "837" });
   assert.equal(claim.structuredContent.variant, "professional");
+  assert.equal(claim.structuredContent.capability, "partial");
   assert.equal(claim.structuredContent.implementationGuide, "005010X222A1");
   assert.match(claim.structuredContent.limitation, /Institutional and Dental are not supported/i);
 
@@ -2295,44 +2307,80 @@ await test("generate_test_document rejects unknown type", async () => {
   const client = { ...stubClient(), demoMode: true, profile: "docs" };
   const res = await callTool(client, "generate_test_document", { type: "999" });
   assert.equal(res.isError, true);
+  assert.equal(res.structuredContent.error, "UNSUPPORTED_TRANSACTION_SET");
 });
 
 await test("local schema and fixture tools refuse out-of-scope EDI flavors and unknown sets", async () => {
   const client = { ...stubClient(), demoMode: true, profile: "docs" };
-  for (const transactionSet of ["EDIFACT", "HL7", "855", "820", "837I", "ORDERS", "ADT"]) {
+  for (const [transactionSet, code] of [
+    ["EDIFACT", "OUT_OF_SCOPE_FORMAT"],
+    ["HL7", "OUT_OF_SCOPE_FORMAT"],
+    ["ORDERS", "OUT_OF_SCOPE_FORMAT"],
+    ["ADT", "OUT_OF_SCOPE_FORMAT"],
+    ["855", "UNSUPPORTED_TRANSACTION_SET"],
+    ["820", "UNSUPPORTED_TRANSACTION_SET"],
+    ["837I", "UNSUPPORTED_TRANSACTION_SET"],
+  ]) {
     const schema = await callTool(client, "get_document_schema", { transactionSet });
     assert.equal(schema.isError, true, `expected refusal for schema ${transactionSet}`);
-    assert.equal(schema.structuredContent.error, "INVALID_TOOL_ARGUMENTS");
-    assert.match(schema.content[0].text, /enum|allowed|invalid/i);
+    assert.equal(schema.structuredContent.error, code, `schema ${transactionSet}`);
+    assert.match(schema.content[0].text, /out of scope|not in the local starter inventory|only 837 Professional/i);
   }
-  for (const type of ["EDIFACT", "HL7", "855", "820", "ORDERS"]) {
+  for (const [type, code] of [
+    ["EDIFACT", "OUT_OF_SCOPE_FORMAT"],
+    ["HL7", "OUT_OF_SCOPE_FORMAT"],
+    ["855", "UNSUPPORTED_TRANSACTION_SET"],
+    ["820", "UNSUPPORTED_TRANSACTION_SET"],
+    ["ORDERS", "OUT_OF_SCOPE_FORMAT"],
+  ]) {
     const fixture = await callTool(client, "generate_test_document", { type });
     assert.equal(fixture.isError, true, `expected refusal for fixture ${type}`);
-    assert.equal(fixture.structuredContent.error, "INVALID_TOOL_ARGUMENTS");
+    assert.equal(fixture.structuredContent.error, code, `fixture ${type}`);
   }
   await assert.rejects(
     () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/EDIFACT/schema"),
-    /Unsupported transaction set.*"EDIFACT"/,
+    /EDIFACT and other non-X12 formats are out of scope/,
   );
   await assert.rejects(
     () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/855/schema"),
-    /Unsupported transaction set.*"855"/,
+    /"855".*not in the local starter inventory/,
   );
   await assert.rejects(
     () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/HL7/schema"),
-    /Unsupported transaction set.*"HL7"/,
+    /HL7 is out of scope/,
   );
 });
 
 await test("get_document_schema never claims partner-IG authority for supported starters", async () => {
   const client = stubClient({ profile: "docs" });
+  const expectedCapability = { "850": "baseline", "810": "baseline", "856": "baseline", "837": "partial" };
   for (const transactionSet of ["850", "810", "856", "837"]) {
     const res = await callTool(client, "get_document_schema", { transactionSet });
     assert.equal(res.isError, undefined);
     assert.equal(res.structuredContent.partnerSpecific, undefined);
+    assert.equal(res.structuredContent.capability, expectedCapability[transactionSet]);
+    assert.equal(res.structuredContent.fixture, true);
     assert.match(res.structuredContent.authority, /public starter schema/i);
     assert.match(res.structuredContent.limitation, /not a (payer or )?trading-partner implementation guide/i);
     assert.doesNotMatch(res.structuredContent.limitation, /this is the partner(?:'s)? implementation guide/i);
+  }
+});
+
+await test("local inventory exposes every schema/fixture pair with honest capability labels", async () => {
+  const { LOCAL_DOCUMENT_SET_CODES, listDocumentSchemas } = await import("./src/document-schemas.mjs");
+  assert.deepEqual([...LOCAL_DOCUMENT_SET_CODES], ["850", "810", "856", "837"]);
+  const listed = listDocumentSchemas();
+  assert.deepEqual(listed.map((item) => item.transactionSet), ["850", "810", "856", "837"]);
+  assert.deepEqual(listed.map((item) => item.capability), ["baseline", "baseline", "baseline", "partial"]);
+
+  const client = { ...stubClient(), demoMode: true, profile: "docs" };
+  for (const transactionSet of LOCAL_DOCUMENT_SET_CODES) {
+    const schema = await callTool(client, "get_document_schema", { transactionSet });
+    const fixture = await callTool(client, "generate_test_document", { type: transactionSet });
+    const resource = await readResource(client, `signaledi://documents/${transactionSet}/schema`);
+    assert.equal(schema.structuredContent.capability, fixture.structuredContent.capability);
+    assert.match(resource.contents[0].text, new RegExp(`Capability: \\*\\*${schema.structuredContent.capability}\\*\\*`));
+    assert.match(fixture.content[0].text, /ISA\*|ST\*/);
   }
 });
 
