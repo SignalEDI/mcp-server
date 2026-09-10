@@ -67,29 +67,66 @@ Tag `mcp-v0.5.0` already exists. Early failures were silent main-resolution unde
 - That 404 is an **npm trusted-publisher / OIDC permission** problem, not the GitHub main-resolution gate. Cutting `0.5.1` alone will hit the same error until OIDC is fixed.
 - This agent **cannot** move protected tag `mcp-v0.5.0` (`GH013: Cannot update this protected ref`).
 
-### Fix npm trusted publishing first
+### Fix npm trusted publishing first (exact dashboard clicks)
 
-On https://www.npmjs.com/package/@signaledi/mcp-server → **Settings → Trusted Publisher** (GitHub Actions):
+You must be logged into npmjs.com as a user with **owner/admin** on the `@signaledi` scope (or maintain rights on this package). Official docs: [Trusted publishing for npm packages](https://docs.npmjs.com/trusted-publishers/).
 
-1. Repository: `SignalEDI/mcp-server`
-2. Workflow filename: `mcp-publish.yml` (exact)
-3. Environment: leave empty unless the workflow uses a named GitHub Environment
-4. Ensure the `@signaledi` org / package still allows publishing from that publisher (and that the package was not disconnected after the 0.4.0 publish)
+#### Required connection values (case-sensitive; exact)
+
+| npm field | Exact value | Notes |
+| --- | --- | --- |
+| Package | `@signaledi/mcp-server` | Existing public package (`0.4.0` latest today) |
+| Publisher | **GitHub Actions** | Not GitLab / CircleCI |
+| Organization or user | `SignalEDI` | GitHub **owner** only (no `/repo`) |
+| Repository | `mcp-server` | Repo name only (no `SignalEDI/`) |
+| Workflow filename | `mcp-publish.yml` | **Filename only** — do **not** enter `.github/workflows/mcp-publish.yml` |
+| Environment name | *(leave blank)* | Workflow has **no** `environment:` key |
+| Allowed actions | enable **`npm publish`** | Required for this workflow’s direct `npm publish` (not stage-only) |
+
+Repo URL that must match `package.json` → `repository.url`: `https://github.com/SignalEDI/mcp-server.git`
+
+Workflow already has job permission `id-token: write`, Node 24, and npm ≥ 11.5.1 gate. GitHub-hosted `ubuntu-latest` runners only (self-hosted not supported by npm trusted publishing).
+
+#### Click path
+
+1. Open **https://www.npmjs.com/package/@signaledi/mcp-server** while signed in.
+2. Open package **Settings** (package gear / Settings tab — not your account settings).
+3. Find **Trusted Publisher** / **Trusted publishing**.
+4. Under **Select your publisher**, click **GitHub Actions**.
+5. Fill the form with the table values above:
+   - Organization or user → `SignalEDI`
+   - Repository → `mcp-server`
+   - Workflow filename → `mcp-publish.yml`
+   - Environment name → leave empty
+   - Allowed actions → allow **`npm publish`** (do not leave stage-only if that would block direct publish)
+6. Click **Save** / **Add trusted publisher** (npm does **not** validate the fields until the next publish attempt).
+7. If an **old/wrong** GitHub trusted publisher already exists (wrong workflow name, path prefix, or environment), **delete it** and create a new one — existing connections cannot be edited in place.
+8. Optional hardening **after** a successful 0.5.0 publish: Settings → **Publishing access** → prefer requiring 2FA / disallowing classic tokens. Do **not** flip this before the first OIDC publish succeeds.
+
+#### Common misconfigs that produce E404 / ENEEDAUTH
+
+- Workflow filed as `.github/workflows/mcp-publish.yml` instead of `mcp-publish.yml`
+- Org filled as `SignalEDI/mcp-server` or repo filled as `SignalEDI/mcp-server`
+- Environment set to a name while the workflow has no GitHub Environment
+- Trusted publisher pointing at a different workflow file (`ci.yml`, etc.)
+- Missing `id-token: write` (already present on the publish job in `mcp-publish.yml`)
+- Attempting publish from a tag tip that predates the OIDC publish fix (#9) while also relying on a broken `_authToken` placeholder path — prefer re-firing from **current `main`** after #9
 
 ### Then re-fire 0.5.0 (preferred; never successfully published)
 
-1. Confirm `main` still has `package.json` / `server.json` version `0.5.0` and the gate fix.
-2. Repo admin with protected-tag rights moves the tag to **current** `main` (required: `TAG_SHA == MAIN_SHA`):
+1. Confirm trusted publisher is saved with the exact table above.
+2. Confirm `main` still has `package.json` / `server.json` version `0.5.0`, the gate fix (#5), and the OIDC publish path (#9).
+3. Repo admin with protected-tag rights moves the tag to **current** `main` (required: `TAG_SHA == MAIN_SHA`; tag workflows use the workflow file **on the tagged commit**):
    ```bash
    git fetch origin main
    MAIN=$(git rev-parse origin/main)
    git tag -f mcp-v0.5.0 "$MAIN"
    git push --force origin refs/tags/mcp-v0.5.0
    ```
-3. Confirm Actions **Publish stable MCP server release** succeeds (npm trusted publish, then MCP Registry).
-4. Verify: `npm view @signaledi/mcp-server version` → `0.5.0`.
+4. Confirm Actions **Publish stable MCP server release** succeeds (npm trusted publish, then MCP Registry).
+5. Verify: `npm view @signaledi/mcp-server version` → `0.5.0`.
 
-Do **not** expect `workflow_dispatch` — `mcp-publish.yml` only triggers on `mcp-v*` tag pushes. Re-running an old failed job against a tag that no longer equals `main` will fail the gate again.
+Do **not** expect `workflow_dispatch` — `mcp-publish.yml` only triggers on `mcp-v*` tag pushes. Re-running [34507766713](https://github.com/SignalEDI/mcp-server/actions/runs/34507766713) alone will **not** pick up #9 (that run’s tag tip predates the OIDC workflow fix) and still needs a correct trusted-publisher connection.
 
 ### Fallback after OIDC works: cut `0.5.1` (avoid moving protected tag)
 
