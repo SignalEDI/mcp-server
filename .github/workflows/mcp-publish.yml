@@ -115,7 +115,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}
-          LOCAL_TARBALL: ${{ steps.pack.outputs.tarball }}
         run: |
           set -euo pipefail
           TAG_SHA=$(git rev-parse "${GITHUB_SHA}^{commit}")
@@ -123,6 +122,21 @@ jobs:
           read -r MAIN_SHA MAIN_PROTECTED <<< "$MAIN_META"
           test -n "$MAIN_SHA" && test "$MAIN_PROTECTED" = "true" && test "$TAG_SHA" = "$MAIN_SHA" || {
             echo "GitHub main is unprotected or advanced during validation; refusing release." >&2
+            exit 1
+          }
+          # setup-node registry-url writes //registry…:_authToken=${NODE_AUTH_TOKEN}.
+          # With NODE_AUTH_TOKEN unset that placeholder can satisfy npm's "has creds" check
+          # and skip a clean OIDC failure mode, yielding anonymous E404 on PUT.
+          if [ -n "${NPM_CONFIG_USERCONFIG:-}" ] && [ -f "$NPM_CONFIG_USERCONFIG" ]; then
+            sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
+          fi
+          unset NODE_AUTH_TOKEN
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || {
+            echo "ACTIONS_ID_TOKEN_REQUEST_URL is missing; id-token: write is required for npm trusted publishing." >&2
+            exit 1
+          }
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
+            echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN is missing; id-token: write is required for npm trusted publishing." >&2
             exit 1
           }
           PKG_NAME=$(node -p "require('./package.json').name")
@@ -134,7 +148,10 @@ jobs:
             }
             echo "Exact npm artifact is already published; continuing recovery at verification."
           else
-            npm publish "$LOCAL_TARBALL" --access public
+            # Publish from the checked-out package so npm's OIDC trusted-publisher
+            # exchange and provenance attestation run on the GitHub Actions identity.
+            # Keep the earlier npm pack integrity evidence for post-publish verification.
+            npm publish --access public --provenance
           fi
       - name: Verify exact npm package
         shell: bash

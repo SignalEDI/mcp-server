@@ -203,19 +203,34 @@ if (standaloneAuthority) {
   check(publishWorkflow.includes('PUBLISHER_VERSION="v1.8.1"'), "MCP publisher must be version-pinned");
   check(publishWorkflow.includes("a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"), "MCP publisher checksum must be pinned");
   check(publishWorkflow.includes('"$RUNNER_TEMP/mcp-publisher" validate server.json'), "official MCP publisher must validate server.json");
-  const npmPublish = publishWorkflow.indexOf('npm publish "$LOCAL_TARBALL" --access public');
+  const npmPublish = publishWorkflow.indexOf("npm publish --access public --provenance");
   const registryValidate = publishWorkflow.indexOf('"$RUNNER_TEMP/mcp-publisher" validate server.json');
   const npmVerify = publishWorkflow.indexOf("Verify exact npm package");
   const registryRecovery = publishWorkflow.indexOf("Inspect immutable MCP Registry version for crash recovery");
   const registryPublish = publishWorkflow.indexOf("Publish to MCP Registry");
   const registryVerify = publishWorkflow.lastIndexOf("--published");
   check(registryValidate >= 0 && registryValidate < npmPublish, "official Registry validation must run before immutable npm publish");
-  check(publishWorkflow.includes("LOCAL_TARBALL: ${{ steps.pack.outputs.tarball }}"), "npm publishing must consume the exact packed tarball output");
+  check(
+    !publishWorkflow.includes('npm publish "$LOCAL_TARBALL"') && !publishWorkflow.includes("npm publish $LOCAL_TARBALL"),
+    "npm trusted publish must not publish a prepacked tarball (OIDC/provenance needs the checkout publish path)",
+  );
+  check(publishWorkflow.includes("LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}"), "npm publishing must verify against the packed integrity evidence");
+  check(publishWorkflow.includes("steps.pack.outputs.integrity"), "release must pack the exact artifact before npm publish for integrity evidence");
+  check(
+    publishWorkflow.includes("_authToken") && publishWorkflow.includes("NPM_CONFIG_USERCONFIG") && publishWorkflow.includes("unset NODE_AUTH_TOKEN"),
+    "publishing must clear setup-node empty _authToken before OIDC trusted publish",
+  );
+  check(
+    publishWorkflow.includes("ACTIONS_ID_TOKEN_REQUEST_URL") && publishWorkflow.includes("ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
+    "publishing must require GitHub Actions OIDC id-token request env before npm publish",
+  );
   check(npmPublish >= 0 && npmVerify > npmPublish && registryRecovery > npmVerify && registryPublish > registryRecovery && registryVerify > registryPublish, "release order must be registry validate, npm publish, npm verify, registry recovery, registry publish, registry verify");
   check(publishWorkflow.includes("/versions/${encodeURIComponent(expected.version)}"), "Registry recovery must query the exact immutable name and version endpoint");
   check(publishWorkflow.includes("response.status === 404"), "Registry recovery may publish only when the exact immutable version is absent");
   check(publishWorkflow.includes("does not exactly match server.json"), "Registry recovery must fail when the immutable manifest differs");
   check((publishWorkflow.match(/if: steps\.registry_state\.outputs\.exists != 'true'/g) ?? []).length === 2, "Registry authentication and publishing must both skip only after an exact recovery match");
+  check(pkg.publishConfig?.access === "public", "package publishConfig.access must be public for scoped trusted publishing");
+  check(pkg.publishConfig?.provenance === true, "package publishConfig.provenance must be true for OIDC provenance");
   for (const action of ["actions/checkout", "actions/setup-node"]) {
     check(new RegExp(`${action}@[0-9a-f]{40}`).test(`${ciWorkflow}\n${publishWorkflow}`), `${action} must be commit-pinned`);
   }
