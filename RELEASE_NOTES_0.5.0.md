@@ -55,3 +55,28 @@ Before publishing 0.5.0:
 2. From clean, unchanged current `main`, prove sandbox against a separately provisioned non-production API base/key, prove production authorization/readiness on the canonical origin without synthetic claims, and run Node 22/24 unit, three-profile stdio protocol, manifest, consumer-install, package-dry-run, and synthetic staging smoke checks.
 3. After explicit release approval, create the protected stable `mcp-v0.5.0` tag on that exact current-main commit. The standalone tag workflow publishes npm through its trusted publisher, verifies the exact package, and only then publishes and verifies the MCP Registry record. The platform snapshot is validation-only.
 4. Keep public website install commands and the 22-tool v0.4 catalog pinned to verified v0.4.0 until npm and MCP Registry both prove the 28-tool v0.5.0 package; update that catalog in a post-publish pull request.
+
+## Republish after failed `mcp-v0.5.0` (gate fix on main)
+
+Tag `mcp-v0.5.0` already exists and previously failed during main-resolution (`silent set -e read`). PR #5 fixed that gate on `main`. The publish workflow still requires `TAG_SHA == current GitHub main`, so a bare `gh run rerun` of the failed tag job is **not** enough once `main` has advanced.
+
+**Preferred (keep version 0.5.0; 0.5.0 never landed on npm):**
+
+1. Confirm `main` includes the publish-gate fix (`scripts/resolve-github-main.sh`) and `package.json` / `server.json` still say `0.5.0`.
+2. Repo admin with protected-tag rights moves the existing tag to current main (do **not** invent a parallel tag name for 0.5.0):
+   ```bash
+   git fetch origin main
+   MAIN=$(git rev-parse origin/main)
+   git tag -f mcp-v0.5.0 "$MAIN"
+   git push --force origin refs/tags/mcp-v0.5.0
+   ```
+3. Confirm Actions run **Publish stable MCP server release** for `mcp-v0.5.0` succeeds (npm trusted publish, then MCP Registry).
+4. Verify: `npm view @signaledi/mcp-server version` → `0.5.0`.
+
+**Fallback (avoid moving the protected tag): cut `0.5.1`**
+
+1. Bump `package.json`, `server.json`, and add `RELEASE_NOTES_0.5.1.md`; update marketplace `mcp.json` pin to `@signaledi/mcp-server@0.5.1`.
+2. Merge to `main`, then create protected tag `mcp-v0.5.1` on that tip (no retag of `mcp-v0.5.0`).
+3. Verify: `npm view @signaledi/mcp-server version` → `0.5.1`.
+
+Do **not** use `workflow_dispatch` today — `mcp-publish.yml` only triggers on `mcp-v*` tag pushes.

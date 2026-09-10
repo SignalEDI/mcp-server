@@ -204,18 +204,19 @@ Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
 }
 ```
 
-### Cursor Marketplace
+## Cursor Marketplace
 
-This repository is also packaged as a Cursor Plugin for the official Marketplace. The plugin launches the same npm package over stdio — there is no parallel MCP implementation.
+This public repository is packaged as a Cursor Plugin for the official Marketplace. The plugin launches the same npm package over stdio — there is no parallel MCP implementation.
 
 | | |
 | --- | --- |
 | Plugin manifest | `.cursor-plugin/plugin.json` (`name`: `signaledi`) |
 | MCP config | `mcp.json` → `npx -y @signaledi/mcp-server@0.5.0` |
-| Logo | `assets/logo.svg` |
+| Logo | `assets/logo.svg` (relative path) |
 | Skill | `skills/signaledi-mcp-profiles/` |
+| Submit | [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) → repo `https://github.com/SignalEDI/mcp-server` |
 
-**Install (after listing):** open Customize → Marketplace, search for SignalEDI, and install. Or submit/review at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) once the public Git repo is ready.
+**Install (after listing):** open Customize → Marketplace, search for SignalEDI, and install.
 
 **Configure:** set plugin variables under Plugins → Configure (no secrets in the repo or prompts):
 
@@ -227,7 +228,7 @@ This repository is also packaged as a Cursor Plugin for the official Marketplace
 | `SIGNALEDI_MCP_ALLOW_CUSTOM_BASE_URL` | `1` only for verified custom hosts |
 | `SIGNALEDI_MCP_ALLOW_PRODUCTION` | `1` only with the production profile and canonical base |
 
-Plugin `mcp.json` uses `${VAR}` placeholders that match those dashboard variables (not the manual `${env:NAME}` syntax used in project `.cursor/mcp.json`). Unset placeholders stay fail-closed on the keyless `docs` profile.
+Plugin `mcp.json` uses `${VAR}` placeholders that match those dashboard variables (not the manual `${env:NAME}` syntax used in project `.cursor/mcp.json`). Unset placeholders stay fail-closed on the keyless `docs` profile. Marketplace one-click install requires `@signaledi/mcp-server@0.5.0` (or newer matching pin) on npm; until that publish lands, local/manual `npx` against a published version still works for verification.
 
 Publishing is subject to the [Cursor Marketplace Publisher Terms](https://cursor.com/marketplace-publisher-terms). Marketplace plugins must be open source and pass manual review; see [marketplace security](https://cursor.com/help/security-and-privacy/marketplace-security).
 
