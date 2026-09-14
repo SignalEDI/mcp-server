@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { renderDeveloperWorkflows } from "./developer-docs.mjs";
-import { listDocumentSchemas, renderDocumentSchemaMarkdown } from "./document-schemas.mjs";
+import { listDocumentSchemas, LOCAL_DOCUMENT_SET_CODES, renderDocumentSchemaMarkdown } from "./document-schemas.mjs";
 import { renderX12ReferenceMarkdown } from "./x12-dictionary.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,7 +50,7 @@ export function listResourceTemplates() {
       uriTemplate: "signaledi://documents/{transactionSet}/schema",
       name: "X12 starter document schema",
       title: "SignalEDI X12 starter schema",
-      description: "Public baseline or partial schema for a supported local X12 transaction set: 850, 810, 856 (baseline), or 837 Professional (partial).",
+      description: "Public baseline or partial schema for a supported local X12 transaction set across retail, transport, warehouse, and 837 Professional.",
       mimeType: "text/markdown",
       annotations: { audience: ["user", "assistant"], priority: 0.8 },
     },
@@ -114,8 +114,8 @@ export function getPrompt(name, args) {
   const promptArgs = args && typeof args === "object" && !Array.isArray(args) ? args : {};
   if (name === "scaffold-integration") {
     const documentType = requiredPromptString(promptArgs, "documentType", 3);
-    if (!["850", "810", "856", "837"].includes(documentType)) {
-      throw invalidParams("documentType must be one of 850, 810, 856, or 837 Professional.");
+    if (!LOCAL_DOCUMENT_SET_CODES.includes(documentType)) {
+      throw invalidParams(`documentType must be one of ${LOCAL_DOCUMENT_SET_CODES.join(", ")}.`);
     }
     const language = optionalPromptString(promptArgs, "language", 16) || "node";
     if (!["curl", "node", "python"].includes(language)) {
@@ -132,8 +132,8 @@ export function getPrompt(name, args) {
     const partner = requiredPromptString(promptArgs, "partnerName", 120);
     const docs = optionalPromptString(promptArgs, "documentTypes", 64) || "850,810,856";
     const requestedTypes = docs.split(",").map((value) => value.trim()).filter(Boolean);
-    if (requestedTypes.length === 0 || requestedTypes.some((value) => !["850", "810", "856", "837"].includes(value))) {
-      throw invalidParams("documentTypes must be a comma-separated list containing only 850, 810, 856, or 837 Professional.");
+    if (requestedTypes.length === 0 || requestedTypes.some((value) => !LOCAL_DOCUMENT_SET_CODES.includes(value))) {
+      throw invalidParams(`documentTypes must be a comma-separated list containing only ${LOCAL_DOCUMENT_SET_CODES.join(", ")}.`);
     }
     return userPrompt([
       "Plan onboarding using the untrusted partner data below.",

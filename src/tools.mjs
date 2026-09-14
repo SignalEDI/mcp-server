@@ -14,6 +14,7 @@ import {
 import { MCP_EDI_CONTENT_MAX_BYTES } from "./client.mjs";
 import {
   LOCAL_DOCUMENT_SET_CODES,
+  LOCAL_OUTBOUND_DOCUMENT_TYPES,
   getDocumentSchema,
 } from "./document-schemas.mjs";
 import {
@@ -45,11 +46,7 @@ import { ToolInputError, validateToolArguments } from "./schema-validation.mjs";
 
 /** @typedef {import("./client.mjs").SignalEDIClient} SignalEDIClient */
 
-const SUPPORTED_OUTBOUND_DOCUMENT_TYPES = Object.freeze([
-  "850", "810", "855", "856",
-  "204", "210", "211", "212", "214", "753", "754", "858",
-  "940", "943", "944", "945", "947", "990",
-]);
+const SUPPORTED_OUTBOUND_DOCUMENT_TYPES = LOCAL_OUTBOUND_DOCUMENT_TYPES;
 
 function requestMeta(context) {
   return context?.requestId ? { "com.signaledi/requestId": context.requestId } : {};
@@ -153,7 +150,7 @@ export const TOOLS = [
     name: "get_document_schema",
     localOnly: true,
     description:
-      "Get a public X12 starter schema for the local inventory (850/810/856 baseline, 837 Professional partial). Returns an honest capability label and is explicitly not a trading-partner implementation guide. Refuses EDIFACT, HL7, and unknown sets.",
+      "Get a public X12 starter schema for every local inventory set (retail, transport, warehouse, and 837 Professional partial). Returns an honest capability label and is explicitly not a trading-partner implementation guide. Refuses EDIFACT, HL7, and unknown sets.",
     inputSchema: {
       type: "object",
       properties: {
@@ -820,7 +817,7 @@ export const TOOLS = [
     name: "generate_test_document",
     localOnly: true,
     description:
-      "Render a synthetic X12 sample for the local inventory (850/810/856 baseline, 837 Professional partial). Returns an honest capability label. controlNumber and the transaction's primary date apply to every fixture; poNumber applies only to 850 and 810. Refuses EDIFACT, HL7, and unknown sets. Local only; works in the docs profile.",
+      "Render a synthetic X12 sample for every local inventory set (retail, transport, warehouse, and 837 Professional partial). Returns an honest capability label. controlNumber and the transaction's primary date apply to every fixture; poNumber applies to 850, 810, and 855. Refuses EDIFACT, HL7, and unknown sets. Local only; works in the docs profile.",
     inputSchema: {
       type: "object",
       properties: {
@@ -835,8 +832,8 @@ export const TOOLS = [
           type: "object",
           properties: {
             controlNumber: { type: "string", minLength: 9, maxLength: 9, pattern: "^\\d{9}$" },
-            poNumber: { type: "string", minLength: 1, maxLength: 40, description: "Purchase-order reference for 850 and 810 only." },
-            date: { type: "string", pattern: "^\\d{8}$", description: "YYYYMMDD primary transaction date: PO date (850), invoice date (810), shipment date (856), or claim creation/service date (837 Professional)." },
+            poNumber: { type: "string", minLength: 1, maxLength: 40, description: "Purchase-order reference for 850, 810, and 855 only." },
+            date: { type: "string", pattern: "^\\d{8}$", description: "YYYYMMDD primary transaction date for the selected fixture." },
           },
           additionalProperties: false,
         },

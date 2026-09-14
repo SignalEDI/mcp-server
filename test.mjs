@@ -2397,8 +2397,8 @@ await test("local schema and fixture tools refuse out-of-scope EDI flavors and u
     ["HL7", "OUT_OF_SCOPE_FORMAT"],
     ["ORDERS", "OUT_OF_SCOPE_FORMAT"],
     ["ADT", "OUT_OF_SCOPE_FORMAT"],
-    ["855", "UNSUPPORTED_TRANSACTION_SET"],
     ["820", "UNSUPPORTED_TRANSACTION_SET"],
+    ["860", "UNSUPPORTED_TRANSACTION_SET"],
     ["837I", "UNSUPPORTED_TRANSACTION_SET"],
   ]) {
     const schema = await callTool(client, "get_document_schema", { transactionSet });
@@ -2409,8 +2409,8 @@ await test("local schema and fixture tools refuse out-of-scope EDI flavors and u
   for (const [type, code] of [
     ["EDIFACT", "OUT_OF_SCOPE_FORMAT"],
     ["HL7", "OUT_OF_SCOPE_FORMAT"],
-    ["855", "UNSUPPORTED_TRANSACTION_SET"],
     ["820", "UNSUPPORTED_TRANSACTION_SET"],
+    ["860", "UNSUPPORTED_TRANSACTION_SET"],
     ["ORDERS", "OUT_OF_SCOPE_FORMAT"],
   ]) {
     const fixture = await callTool(client, "generate_test_document", { type });
@@ -2422,8 +2422,8 @@ await test("local schema and fixture tools refuse out-of-scope EDI flavors and u
     /EDIFACT and other non-X12 formats are out of scope/,
   );
   await assert.rejects(
-    () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/855/schema"),
-    /"855".*not in the local starter inventory/,
+    () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/820/schema"),
+    /"820".*not in the local starter inventory/,
   );
   await assert.rejects(
     () => readResource(stubClient({ profile: "docs" }), "signaledi://documents/HL7/schema"),
@@ -2433,12 +2433,11 @@ await test("local schema and fixture tools refuse out-of-scope EDI flavors and u
 
 await test("get_document_schema never claims partner-IG authority for supported starters", async () => {
   const client = stubClient({ profile: "docs" });
-  const expectedCapability = { "850": "baseline", "810": "baseline", "856": "baseline", "837": "partial" };
-  for (const transactionSet of ["850", "810", "856", "837"]) {
+  for (const transactionSet of ["850", "810", "855", "856", "204", "940", "990", "837"]) {
     const res = await callTool(client, "get_document_schema", { transactionSet });
     assert.equal(res.isError, undefined);
     assert.equal(res.structuredContent.partnerSpecific, undefined);
-    assert.equal(res.structuredContent.capability, expectedCapability[transactionSet]);
+    assert.equal(res.structuredContent.capability, transactionSet === "837" ? "partial" : "baseline");
     assert.equal(res.structuredContent.fixture, true);
     assert.match(res.structuredContent.authority, /public starter schema/i);
     assert.match(res.structuredContent.limitation, /not a (payer or )?trading-partner implementation guide/i);
@@ -2447,11 +2446,18 @@ await test("get_document_schema never claims partner-IG authority for supported 
 });
 
 await test("local inventory exposes every schema/fixture pair with honest capability labels", async () => {
-  const { LOCAL_DOCUMENT_SET_CODES, listDocumentSchemas } = await import("./src/document-schemas.mjs");
-  assert.deepEqual([...LOCAL_DOCUMENT_SET_CODES], ["850", "810", "856", "837"]);
+  const { LOCAL_DOCUMENT_SET_CODES, LOCAL_OUTBOUND_DOCUMENT_TYPES, listDocumentSchemas } = await import("./src/document-schemas.mjs");
+  assert.deepEqual([...LOCAL_DOCUMENT_SET_CODES], [
+    "850", "810", "855", "856",
+    "204", "210", "211", "212", "214", "753", "754", "858",
+    "940", "943", "944", "945", "947", "990",
+    "837",
+  ]);
+  assert.deepEqual([...LOCAL_OUTBOUND_DOCUMENT_TYPES], LOCAL_DOCUMENT_SET_CODES.filter((code) => code !== "837"));
+  assert.equal(LOCAL_DOCUMENT_SET_CODES.length, 19);
   const listed = listDocumentSchemas();
-  assert.deepEqual(listed.map((item) => item.transactionSet), ["850", "810", "856", "837"]);
-  assert.deepEqual(listed.map((item) => item.capability), ["baseline", "baseline", "baseline", "partial"]);
+  assert.deepEqual(listed.map((item) => item.transactionSet), [...LOCAL_DOCUMENT_SET_CODES]);
+  assert.ok(listed.every((item) => item.capability === (item.transactionSet === "837" ? "partial" : "baseline")));
 
   const client = { ...stubClient(), demoMode: true, profile: "docs" };
   for (const transactionSet of LOCAL_DOCUMENT_SET_CODES) {
@@ -2461,6 +2467,7 @@ await test("local inventory exposes every schema/fixture pair with honest capabi
     assert.equal(schema.structuredContent.capability, fixture.structuredContent.capability);
     assert.match(resource.contents[0].text, new RegExp(`Capability: \\*\\*${schema.structuredContent.capability}\\*\\*`));
     assert.match(fixture.content[0].text, /ISA\*|ST\*/);
+    assert.match(fixture.structuredContent.content, new RegExp(`ST\\*${transactionSet}\\*`));
   }
 });
 
@@ -2485,11 +2492,18 @@ await test("validation catalog codes have dictionary entries", () => {
   }
 });
 
-await test("renderTestDocument covers all template types", () => {
-  for (const type of ["850", "810", "856", "837"]) {
+await test("renderTestDocument covers all template types", async () => {
+  const { LOCAL_DOCUMENT_SET_CODES } = await import("./src/document-schemas.mjs");
+  for (const type of LOCAL_DOCUMENT_SET_CODES) {
     const doc = renderTestDocument(type);
     assert.match(doc, /ISA\*/);
     assert.match(doc, new RegExp(`ST\\*${type}`));
+    const se = /SE\*(\d+)\*0001~/.exec(doc);
+    assert.ok(se, `missing SE for ${type}`);
+    const stIndex = doc.indexOf(`ST*${type}`);
+    const seIndex = doc.indexOf(se[0]);
+    const segmentCount = doc.slice(stIndex, seIndex).split("~").filter(Boolean).length + 1;
+    assert.equal(Number(se[1]), segmentCount, `SE count mismatch for ${type}`);
   }
 });
 
@@ -2512,8 +2526,9 @@ await test("renderTestDocument validates override boundaries", () => {
   assert.throws(() => renderTestDocument("850", { date: "2026-07-13" }), /YYYYMMDD/);
   assert.throws(() => renderTestDocument("850", { controlNumber: "123" }), /9 digits/);
   assert.throws(() => renderTestDocument("850", { poNumber: "PO~BAD" }), /EDI separators/);
-  assert.throws(() => renderTestDocument("856", { poNumber: "PO-IGNORED" }), /supported only for 850 and 810/);
-  assert.throws(() => renderTestDocument("837", { poNumber: "PO-IGNORED" }), /supported only for 850 and 810/);
+  assert.throws(() => renderTestDocument("856", { poNumber: "PO-IGNORED" }), /supported only for 850, 810, and 855/);
+  assert.throws(() => renderTestDocument("837", { poNumber: "PO-IGNORED" }), /supported only for 850, 810, and 855/);
+  assert.doesNotThrow(() => renderTestDocument("855", { poNumber: "PO-ACK-001" }));
   assert.throws(() => renderTestDocument("850", { unknown: "x" }), /Unsupported override/);
 });
 
@@ -2539,7 +2554,8 @@ await test("lookupX12 returns empty matches for blank query", () => {
 
 await test("developer uplift lists public MCP resources and schema resources", () => {
   const resources = listResources();
-  assert.ok(resources.length >= 8);
+  assert.ok(resources.length >= 23);
+  assert.equal(resources.filter((item) => item.uri.startsWith("signaledi://documents/")).length, 19);
   const uris = resources.map((r) => r.uri);
   for (const expected of ["signaledi://quickstart", "signaledi://openapi", "signaledi://x12-reference"]) {
     assert.ok(uris.includes(expected), `missing resource ${expected}`);
@@ -2686,13 +2702,15 @@ await test("prompt arguments remain bounded untrusted JSON data", () => {
     /at most 16 characters/,
   );
   assert.throws(
-    () => getPrompt("scaffold-integration", { documentType: "855" }),
+    () => getPrompt("scaffold-integration", { documentType: "820" }),
     /documentType must be one of/,
   );
   assert.throws(
     () => getPrompt("scaffold-integration", { documentType: "HL7" }),
     /documentType must be one of|at most 3 characters/,
   );
+  assert.doesNotThrow(() => getPrompt("scaffold-integration", { documentType: "855" }));
+  assert.doesNotThrow(() => getPrompt("scaffold-integration", { documentType: "940" }));
 });
 
 await test("readResource rejects unknown uri", async () => {
