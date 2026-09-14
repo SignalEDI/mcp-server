@@ -37,6 +37,12 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Validate release contract
         run: npm run validate:release
+      - name: Validate Cursor, Claude, and MCPB packaging
+        run: |
+          npm run validate:cursor-plugin
+          npm run validate:claude-plugin
+          npm run validate:mcpb
+          npm run validate:antigravity-plugin
       - name: Run 105+ unit contracts
         run: npm test
       - name: Run docs, sandbox, and production stdio smoke (7/28/21)

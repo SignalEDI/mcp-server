@@ -21,9 +21,12 @@ registry publish source.
 ## Platform snapshot updates
 
 After an approved standalone release change merges, copy the package source,
-tests, examples, lockfile, manifests, and release notes into the platform
-snapshot without `node_modules`. Preserve platform-only repository workflows and
-runbooks, run both repositories' validation, and review any drift explicitly.
+tests, examples, lockfile, manifests, release notes, and marketplace plugin
+files (`.cursor-plugin/`, `mcp.json`, `.claude-plugin/`, `.mcp.json`, `skills/`,
+`assets/`, `mcpb/`, `antigravity-plugin/`, and `scripts/validate-*.mjs` /
+`scripts/build-mcpb.mjs`) into the platform snapshot without `node_modules`.
+Preserve platform-only repository workflows and runbooks, run both
+repositories' validation, and review any drift explicitly.
 
 ## Security checklist
 
