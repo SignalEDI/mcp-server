@@ -204,6 +204,21 @@ Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
 }
 ```
 
+## Claude Code plugin
+
+This public repository is also a Claude Code / Cowork plugin for the community plugin directory. The plugin launches the same npm package over stdio — there is no parallel MCP implementation and SignalEDI does not expose a hosted remote MCP URL, so skip the remote OAuth connector directory.
+
+| | |
+| --- | --- |
+| Plugin manifest | `.claude-plugin/plugin.json` (`name`: `signaledi`) |
+| MCP config | `.mcp.json` → `npx -y @signaledi/mcp-server@0.5.0` |
+| Skill | `skills/signaledi-mcp-profiles/` |
+| Validate locally | `claude plugin validate . --strict` (from this folder; Claude Code CLI) |
+| Submit (Console) | [platform.claude.com/plugins/submit](https://platform.claude.com/plugins/submit) |
+| Submit (claude.ai Team/Enterprise) | [claude.ai/admin-settings/directory/submissions/plugins/new](https://claude.ai/admin-settings/directory/submissions/plugins/new) |
+
+Docs: [Submitting your plugin](https://claude.com/docs/plugins/submit). Official `claude-plugins-official` marketplace is curated; community submit still requires a public GitHub repo and `claude plugin validate`. One-click install needs `@signaledi/mcp-server@0.5.0` on npm.
+
 ## Claude Desktop (MCPB)
 
 Package the same stdio server as a Claude Desktop Extension (`.mcpb`). Source: `mcpb/manifest.json` + `scripts/build-mcpb.mjs`. See `mcpb/README.md` for full build and submit notes.
