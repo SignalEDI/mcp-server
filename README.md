@@ -28,7 +28,7 @@ The profile is a least-capability boundary inside the MCP adapter, not a substit
 Every authenticated call requires the base `platform` scope. Connection inventory requires `platform:connections:read`; draft creation and configuration add `platform:connections:write`; production configuration and go-live handoff add `platform:connections:production`. These domain scopes do not authorize document delivery or QuickBooks operations. Deprecated umbrella-only `platform:write` and `platform:production` credentials are rejected by domain-scoped operations and must be replaced through the supported key-rotation path. Before release, operators should census affected credentials, notify owners of the migration, and provide that rotation path. MCP profile selection never grants a scope.
 
 | API operation | Additional least-privilege scopes |
-| --- | --- | --- |
+| --- | --- |
 | Parse/validate and generic kit reads | None beyond `platform` |
 | Transaction reads | `platform:documents:read` |
 | Outbound send | `platform:documents:read`, `platform:documents:send`; add `platform:documents:production` for production delivery |
