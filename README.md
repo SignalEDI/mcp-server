@@ -28,7 +28,7 @@ The profile is a least-capability boundary inside the MCP adapter, not a substit
 Every authenticated call requires the base `platform` scope. Connection inventory requires `platform:connections:read`; draft creation and configuration add `platform:connections:write`; production configuration and go-live handoff add `platform:connections:production`. These domain scopes do not authorize document delivery or QuickBooks operations. Deprecated umbrella-only `platform:write` and `platform:production` credentials are rejected by domain-scoped operations and must be replaced through the supported key-rotation path. Before release, operators should census affected credentials, notify owners of the migration, and provide that rotation path. MCP profile selection never grants a scope.
 
 | API operation | Additional least-privilege scopes |
-| --- | --- |
+| --- | --- | --- |
 | Parse/validate and generic kit reads | None beyond `platform` |
 | Transaction reads | `platform:documents:read` |
 | Outbound send | `platform:documents:read`, `platform:documents:send`; add `platform:documents:production` for production delivery |
@@ -203,6 +203,21 @@ Cursor uses `.cursor/mcp.json`, `mcpServers`, and `${env:NAME}` references:
   }
 }
 ```
+
+## Claude Code plugin
+
+This public repository is also a Claude Code / Cowork plugin for the community plugin directory. The plugin launches the same npm package over stdio — there is no parallel MCP implementation and SignalEDI does not expose a hosted remote MCP URL, so skip the remote OAuth connector directory.
+
+| | |
+| --- | --- |
+| Plugin manifest | `.claude-plugin/plugin.json` (`name`: `signaledi`) |
+| MCP config | `.mcp.json` → `npx -y @signaledi/mcp-server@0.5.0` |
+| Skill | `skills/signaledi-mcp-profiles/` |
+| Validate locally | `claude plugin validate . --strict` (from this folder; Claude Code CLI) |
+| Submit (Console) | [platform.claude.com/plugins/submit](https://platform.claude.com/plugins/submit) |
+| Submit (claude.ai Team/Enterprise) | [claude.ai/admin-settings/directory/submissions/plugins/new](https://claude.ai/admin-settings/directory/submissions/plugins/new) |
+
+Docs: [Submitting your plugin](https://claude.com/docs/plugins/submit). Official `claude-plugins-official` marketplace is curated; community submit still requires a public GitHub repo and `claude plugin validate`. One-click install needs `@signaledi/mcp-server@0.5.0` on npm.
 
 ## Claude Desktop (MCPB)
 
